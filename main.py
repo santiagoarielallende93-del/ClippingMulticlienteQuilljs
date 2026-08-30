@@ -26,7 +26,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "3.3"
+APP_VERSION = "3.4"
 USAR_FILTRO_RELEVANCIA_IA = True  # Cambiar a False para desactivar el filtro de IA
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
@@ -308,10 +308,11 @@ def sincronizar_base_medios(cliente_nombre, logger):
     df_medios = None
     df_feeds = None
     try:
-        match = re.search(r'/d/([a-zA-Z0-9-_]+)', LINK_EXCEL_DRIVE)
+        match = re.search(r'([a-zA-Z0-9-_]{25,})', LINK_EXCEL_DRIVE)
         if match:
             file_id = match.group(1)
             url_descarga = f"[https://docs.google.com/spreadsheets/d/](https://docs.google.com/spreadsheets/d/){file_id}/export?format=xlsx"
+            url_descarga = re.sub(r'[\[\]\(\)\'\"]', '', url_descarga).strip()
             resp_excel = requests.get(url_descarga, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
             if resp_excel.status_code == 200:
                 xls_cargado = pd.ExcelFile(io.BytesIO(resp_excel.content))

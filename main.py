@@ -27,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "1.18"
+APP_VERSION = "1.19"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/refs/heads/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/refs/heads/main/main.py"
 GROQ_API_KEY = "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" 
@@ -344,7 +344,7 @@ def obtener_fecha_metadata(page):
     except: pass
     return ""
 
-# PÁRRAFOS Y DESCRIPCIONES EN TAHOMA 12PX
+# PÁRRAFOS Y DESCRIPCIONES SECUNDARIAS EN TAHOMA 12PX
 def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec_id="", resumen_rss=""):
     secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
     
@@ -597,7 +597,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
         else:
             info_metricas = " -"
             
-        # PRIMERA LÍNEA (LÍNEA COMPLETA DEL TÍTULO DE LA NOTA) EN TAHOMA 14PX
+        # PRIMERA LÍNEA COMPLETA HASTA EL TÍTULO DE LA NOTA EN TAHOMA 14PX
         html_indiv = f'''<p style="font-size: 14px; font-family: Tahoma, sans-serif; line-height: 1.5; margin-top: 0; margin-bottom: 4px; color: #000000;"><strong style="color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;">{noti['medio']}</strong>{tipo_html}<strong style="color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;">{noti['fecha']}</strong>{info_metricas} <a href="{noti['link']}" target="_blank" style="color: {color_tema}; text-decoration: none; font-size: 14px; font-weight: normal; font-family: Tahoma, sans-serif;">{noti['titulo']}</a></p>{bloque_texto}'''
         
         noti['html_bloque'] = html_indiv
@@ -1236,7 +1236,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             render();
         }
 
-        // GENERACIÓN HTML FINAL CON MARCOS Y SÍNTESIS EN TAHOMA
+        // GENERACIÓN HTML FINAL CON SÍNTESIS Y FORMATO ADAPTADO PARA WORD
         function generarHtmlFinal(){
             let html = '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">';
             html += '<style>body, table, td, p, div, span, a { font-family: Tahoma, sans-serif !important; } p { margin: 0 0 6px 0 !important; line-height: 1.5 !important; } a { text-decoration: none; }</style>';
@@ -1356,7 +1356,6 @@ def index():
             ui.button('Ingresar al Sistema', on_click=attempt_login).classes('w-full bg-[#006E74] text-white font-bold rounded-lg')
         return
 
-    # ACTUALIZADOR AUTOMÁTICO DESDE GITHUB (OBS 2)
     def chequear_version():
         try:
             resp = requests.get(URL_VERSION_GITHUB, timeout=2)
@@ -1371,7 +1370,7 @@ def index():
                                 ruta_script = os.path.abspath(sys.argv[0])
                                 with open(ruta_script, "w", encoding="utf-8") as f:
                                     f.write(r_code.text)
-                                ui.notify('✅ ¡Actualización instalada correctamente! Reiniciando el programa...', type='positive', position='top-right')
+                                ui.notify('✅ ¡Actualización instalada correctamente! Reiniciando...', type='positive', position='top-right')
                                 time.sleep(1.5)
                                 os.execv(sys.executable, [sys.executable] + sys.argv)
                             else:
@@ -1513,7 +1512,6 @@ def index():
                 state.log_container.push("✅ PROCESO TERMINADO. Generando editor...")
             html_resultado = generar_html_editor(config["banner_principal_url"], data_editor, config["color_primario"], state.cliente)
             
-            # OBS 1: NOMBRE DE DESCARGA CON FORMATO Clipping [Cliente] [DD-MM-YY].html
             fecha_hoy = datetime.datetime.now().strftime("%d-%m-%y")
             nombre_archivo = f'Clipping {state.cliente} {fecha_hoy}.html'
             

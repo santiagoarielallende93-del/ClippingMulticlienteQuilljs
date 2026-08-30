@@ -27,8 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "3.0"
-USAR_FILTRO_RELEVANCIA_IA = True  # Cambiar a False para desactivar el filtro de IA
+APP_VERSION = "3.2"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -56,19 +55,37 @@ def es_portal_extranjero(url, medio, texto=""):
     return False
 
 # ====================================================================
-# FILTRO DE RELEVANCIA CON IA (GROQ)
+# FILTRO DE RELEVANCIA CON IA (GROQ / PROMPT ESTRUCTURADO B2B/B2C)
 # ====================================================================
-def evaluar_relevancia_ia(titulo, texto, cliente, palabras_clave, logger=None):
-    if not USAR_FILTRO_RELEVANCIA_IA or not GROQ_API_KEY:
+def evaluar_relevancia_ia(titulo, texto, cliente, palabras_clave, fuente="Portal", seccion_destino="General", logger=None, usar_filtro_ia=True):
+    if not usar_filtro_ia or not GROQ_API_KEY:
         return True
     try:
-        prompt = (
-            f"Sos un analista de prensa profesional. Evalúa si esta noticia es verdaderamente RELEVANTE para el cliente '{cliente}'.\n"
-            f"Palabras clave principales de interés: {', '.join(palabras_clave)}.\n"
-            f"Título de la noticia: {titulo}\n"
-            f"Contenido/Bajada: {texto[:600]}\n\n"
-            f"REGLA ESTRICTA: Responde ÚNICAMENTE con la palabra 'SI' si la noticia le interesa al cliente, o 'NO' si es irrelevante, fuera de contexto o ruido."
-        )
+        kw_str = ", ".join(palabras_clave) if palabras_clave else "Sin especificar"
+        prompt = f"""Sos un editor ejecutivo y analista de medios senior especializado en curaduría para newsletters B2B/B2C. Tu tarea es auditar si una nota capturada mediante automatizaciones RSS/Keywords realmente califica para ser incluida en la entrega de hoy.
+
+[DATOS DE ENTRADA]
+- Título de la nota: {titulo}
+- Bajada / Extracto: {texto[:600]}
+- Fuente: {fuente}
+- Palabras clave detectadas: {kw_str}
+- Temática / Sección destino: {seccion_destino}
+- Perfil del newsletter: {cliente}
+
+[CRITERIOS DE EVALUACIÓN]
+1. Pertinencia contextual: ¿La palabra clave aparece en el sentido correcto del sector, o es un falso positivo/coincidencia homónima sin relación?
+2. Impacto y Valor: ¿Aporta información sustancial, analítica o estratégica para la audiencia? Descarta publirreportajes vacíos, clickbait, notas duplicadas o menciones meramente tangenciales.
+3. Alineación temática: ¿Encaja de forma natural en la sección "{seccion_destino}" o pertenecería mejor a otra parte del newsletter?
+
+[FORMATO DE SALIDA - EXCLUSIVAMENTE JSON VÁLIDO SIN MARKDOWN ADICIONAL]
+{{
+"incluir": true | false,
+"puntaje_relevancia": 1 a 10,
+"razonamiento": "Explicación breve (máximo 2 oraciones) de por qué se aprueba o rechaza.",
+"seccion_sugerida": "Nombre de la sección idónea si difiere de la original, o null",
+"sintesis_newsletter": "Resumen ejecutivo de 2 oraciones listo para publicación si 'incluir' es true, o null"
+}}"""
+
         res = requests.post(
             'https://api.groq.com/openai/v1/chat/completions',
             headers={
@@ -79,14 +96,21 @@ def evaluar_relevancia_ia(titulo, texto, cliente, palabras_clave, logger=None):
                 'model': 'openai/gpt-oss-20b',
                 'messages': [{'role': 'user', 'content': prompt}],
                 'temperature': 0.1,
-                'max_tokens': 10
+                'max_tokens': 200,
+                'response_format': {'type': 'json_object'}
             },
-            timeout=4
+            timeout=5
         )
         if res.status_code == 200:
-            respuesta = res.json()['choices'][0]['message']['content'].strip().upper()
-            if 'NO' in respuesta and 'SI' not in respuesta:
-                return False
+            content = res.json()['choices'][0]['message']['content'].strip()
+            if content.startswith("```json"):
+                content = content.replace("```json", "").replace("```", "").strip()
+            elif content.startswith("```"):
+                content = content.replace("```", "").strip()
+                
+            data = json.loads(content)
+            if isinstance(data, dict) and "incluir" in data:
+                return bool(data["incluir"])
     except Exception as e:
         if logger:
             logger(f"    ⚠️ Respaldo por timeout/error de IA: {e}")
@@ -113,125 +137,125 @@ CLIENTES_CONFIG = {
         "color_primario": "#006E74",
         "hoja_excel": "MSD",
         "banner_principal_local": "banners/principal.jpg",
-        "banner_principal_url": "https://drive.google.com/file/d/1uT1al-u7cCEG-Q6oiay52GIdwnj2OKM5/view",
+        "banner_principal_url": "[https://drive.google.com/file/d/1uT1al-u7cCEG-Q6oiay52GIdwnj2OKM5/view](https://drive.google.com/file/d/1uT1al-u7cCEG-Q6oiay52GIdwnj2OKM5/view)",
         "secciones": [
             {
                 "id": "exclusivas", "nombre": "Exclusivas", "nombre_largo": "Exclusivas (MSD Salud Animal)",
-                "img_local": "banners/exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1cUyr83JrnQIo0XqMFltpoQkbuskaN41C/view", 
-                "rss": ["https://news.google.com/rss/search?q=%22MSD%20Salud%20Animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22Walter%20Comas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22Clara%20Fern%C3%A1ndez%20Boglione%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "img_local": "banners/exclusivas.jpg", "img_url": "[https://drive.google.com/file/d/1cUyr83JrnQIo0XqMFltpoQkbuskaN41C/view](https://drive.google.com/file/d/1cUyr83JrnQIo0XqMFltpoQkbuskaN41C/view)", 
+                "rss": ["[https://news.google.com/rss/search?q=%22MSD%20Salud%20Animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22MSD%20Salud%20Animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+                "[https://news.google.com/rss/search?q=%22Walter%20Comas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22Walter%20Comas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+                "[https://news.google.com/rss/search?q=%22Clara%20Fern%C3%A1ndez%20Boglione%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22Clara%20Fern%C3%A1ndez%20Boglione%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
                 "keywords": ["MSD Salud Animal", "MSD", "Walter Comas", "Clara Fernández Boglione", "Pablo Nervi", "Emiliano Segurado"], "exclusiones": [], "limite": 20
             },
             {
                 "id": "ceo", "nombre": "CEO", "nombre_largo": "CEO",
-                "img_local": "banners/ceo.jpg", "img_url": "https://drive.google.com/file/d/1IH8MranbZnd_R--Nz5JZFbxbg3kDTfBB/view", 
-                "rss": ["https://news.google.com/rss/search?q=CEO%20empresa%20-futbol%20-deportes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "img_local": "banners/ceo.jpg", "img_url": "[https://drive.google.com/file/d/1IH8MranbZnd_R--Nz5JZFbxbg3kDTfBB/view](https://drive.google.com/file/d/1IH8MranbZnd_R--Nz5JZFbxbg3kDTfBB/view)", 
+                "rss": ["[https://news.google.com/rss/search?q=CEO%20empresa%20-futbol%20-deportes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=CEO%20empresa%20-futbol%20-deportes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
                 "keywords": ["ceo", "CEO", "entrevista", "Entrevista", "ENTREVISTA", "Chief Ejecutive Officer", "Director Ejecutivo", "en dialogo"], "exclusiones": ["fútbol", "futbol", "partido", "dt ", "boca", "river", "racing", "independiente", "san lorenzo", "champions", "tenis", "nba", "rugby", "goles", "gol ", "estadio", "scaloni", "actor", "actriz", "película", "pelicula", "cine", "teatro", "recital", "cantante", "música", "musica", "farándula", "gran hermano", "reality", "asesinato", "crimen"], "limite": 10
             },
             {
                 "id": "salud", "nombre": "Salud Animal", "nombre_largo": "Salud Animal",
-                "img_local": "banners/salud.jpg", "img_url": "https://drive.google.com/file/d/1Uc5WOsfk6kPBTncXsb6b7qOQlX3guYhz/view", 
-                "rss": ["https://news.google.com/rss/search?q=zoonosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=hantavirus%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=triquinosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22bienestar%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22salud%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "img_local": "banners/salud.jpg", "img_url": "[https://drive.google.com/file/d/1Uc5WOsfk6kPBTncXsb6b7qOQlX3guYhz/view](https://drive.google.com/file/d/1Uc5WOsfk6kPBTncXsb6b7qOQlX3guYhz/view)", 
+                "rss": ["[https://news.google.com/rss/search?q=zoonosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=zoonosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+                "[https://news.google.com/rss/search?q=hantavirus%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=hantavirus%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+                "[https://news.google.com/rss/search?q=triquinosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=triquinosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+                "[https://news.google.com/rss/search?q=%22bienestar%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22bienestar%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+                "[https://news.google.com/rss/search?q=%22salud%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22salud%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
                 "keywords": ["zoonosis", "hantavirus", "triquinosis", "veterinaria", "salud animal", "humano", "humanos", "Biogénesis Bagó"], "exclusiones": ["pediatría", "hospital municipal", "paro médico", "prepaga", "ioma", "pami", "estética humana"], "limite": 10
             },
             {
                 "id": "mascotas", "nombre": "Animales de Compañía", "nombre_largo": "Animales de Compañía / Mascotas",
-                "img_local": "banners/mascotas.jpg", "img_url": "https://drive.google.com/file/d/1-zviGD1bM6e5493pKhUntxGXVQTquj5z/view", 
-                "rss": ["https://news.google.com/rss/search?q=mascotas%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=perros%20veterinaria%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=gatos%20veterinaria%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22animales%20de%20compa%C3%B1%C3%ADa%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "img_local": "banners/mascotas.jpg", "img_url": "[https://drive.google.com/file/d/1-zviGD1bM6e5493pKhUntxGXVQTquj5z/view](https://drive.google.com/file/d/1-zviGD1bM6e5493pKhUntxGXVQTquj5z/view)", 
+                "rss": ["[https://news.google.com/rss/search?q=mascotas%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=mascotas%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=perros%20veterinaria%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=perros%20veterinaria%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=gatos%20veterinaria%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=gatos%20veterinaria%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22animales%20de%20compa%C3%B1%C3%ADa%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22animales%20de%20compa%C3%B1%C3%ADa%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
                 "keywords": ["Mascotas", "Perros", "Perro", "Gato", "Gatos", "Animales de compañía", "canino", "felino"], "exclusiones": ["ballena", "delfín", "tiburón", "fauna silvestre", "zoológico", "zoo ", "matt damon", "actor", "actriz", "película", "pelicula", "cine", "hollywood", "famosos", "farándula", "gran hermano", "reality", "hugo sigman", "insud", "diputado", "senador"], "limite": 15
             },
             {
                 "id": "aves", "nombre": "Aves", "nombre_largo": "Aves",
-                "img_local": "banners/aves.jpg", "img_url": "https://drive.google.com/file/d/1xxWwhur4zqeiH5OyH11LtVa-nqH-Bvfp/view", 
-                "rss": ["https://news.google.com/rss/search?q=avicultura%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22granjas%20av%C3%ADcolas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=produccion%20avicola%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=gallinas%20huevos%20produccion%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "img_local": "banners/aves.jpg", "img_url": "[https://drive.google.com/file/d/1xxWwhur4zqeiH5OyH11LtVa-nqH-Bvfp/view](https://drive.google.com/file/d/1xxWwhur4zqeiH5OyH11LtVa-nqH-Bvfp/view)", 
+                "rss": ["[https://news.google.com/rss/search?q=avicultura%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=avicultura%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22granjas%20av%C3%ADcolas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22granjas%20av%C3%ADcolas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=produccion%20avicola%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=produccion%20avicola%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=gallinas%20huevos%20produccion%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=gallinas%20huevos%20produccion%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
                 "keywords": ["Aves", "Avicultura", "Avícola", "avícolas", "huevo", "huevos", "gallina", "gallinas", "granjas avícolas"], "exclusiones": ["dinosaurio", "fósil", "cóndor", "fauna silvestre", "avión", "aerolíneas", "vuelo"], "limite": 10
             },
             {
                 "id": "cerdos", "nombre": "Cerdos", "nombre_largo": "Cerdos",
-                "img_local": "banners/cerdos.jpg", "img_url": "https://drive.google.com/file/d/1vvV1SK4Vf0Y6Zijn_9pOIfQbZV11Gw-v/view", 
-                "rss": ["https://news.google.com/rss/search?q=cerdos%20produccion%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "img_local": "banners/cerdos.jpg", "img_url": "[https://drive.google.com/file/d/1vvV1SK4Vf0Y6Zijn_9pOIfQbZV11Gw-v/view](https://drive.google.com/file/d/1vvV1SK4Vf0Y6Zijn_9pOIfQbZV11Gw-v/view)", 
+                "rss": ["[https://news.google.com/rss/search?q=cerdos%20produccion%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=cerdos%20produccion%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=porcino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=porcino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=porcina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=porcina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
                 "keywords": ["Cerdos", "Porcino", "Porcina"], "exclusiones": ["actor", "actriz", "farándula", "película", "cine"], "limite": 10
             },
             {
                 "id": "ganaderia", "nombre": "Ganadería", "nombre_largo": "Ganadería",
-                "img_local": "banners/ganaderia.jpg", "img_url": "https://drive.google.com/file/d/1JglW_UjMe-Lzqc7nxA1Ws776gVqXPI08/view", 
-                "rss": ["https://news.google.com/rss/search?q=ganaderia%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tecnovax%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=bovino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=feedlot%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=vacas%20ganado%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "img_local": "banners/ganaderia.jpg", "img_url": "[https://drive.google.com/file/d/1JglW_UjMe-Lzqc7nxA1Ws776gVqXPI08/view](https://drive.google.com/file/d/1JglW_UjMe-Lzqc7nxA1Ws776gVqXPI08/view)", 
+                "rss": ["[https://news.google.com/rss/search?q=ganaderia%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=ganaderia%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Tecnovax%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Tecnovax%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=bovino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=bovino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=feedlot%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=feedlot%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=vacas%20ganado%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=vacas%20ganado%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
                 "keywords": ["Ganadería", "Ganadero", "Bovino", "Ganado", "vacas", "vaca", "feedlot", "feedlots", "tecnovax", "lechería", "leche", "brucelosis", "tuberculosis", "aftosa",], "exclusiones": ["actor", "actriz", "farándula", "película", "cine", "fútbol", "Vaca Muerta"], "limite": 20
             },
             {
                 "id": "innovacion", "nombre": "Innovación en Salud Animal", "nombre_largo": "Innovación en Salud Animal",
-                "img_local": "banners/innovacion.jpg", "img_url": "https://drive.google.com/file/d/1A6JsKrwszGa5UQaxtE-fOda1gleA9jP9/view", 
-                "rss": ["https://news.google.com/rss/search?q=%22innovacion%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22tecnologia%20veterinaria%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22biotecnologia%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "img_local": "banners/innovacion.jpg", "img_url": "[https://drive.google.com/file/d/1A6JsKrwszGa5UQaxtE-fOda1gleA9jP9/view](https://drive.google.com/file/d/1A6JsKrwszGa5UQaxtE-fOda1gleA9jP9/view)", 
+                "rss": ["[https://news.google.com/rss/search?q=%22innovacion%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22innovacion%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22tecnologia%20veterinaria%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22tecnologia%20veterinaria%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22biotecnologia%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22biotecnologia%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
                 "keywords": ["Innovación", "tecnología veterinaria", "biotecnología animal"], "exclusiones": ["actor", "farándula", "cine"], "limite": 5
             }
         ]
     },
     "Mars": {
-        "color_primario": "#0000FF", "hoja_excel": "Mars", "banner_principal_local": "banners/mars_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1pi3-8vZ-xr9p0AVR8tZmLaknj2kuhY7W/view",
+        "color_primario": "#0000FF", "hoja_excel": "Mars", "banner_principal_local": "banners/mars_principal.jpg", "banner_principal_url": "[https://drive.google.com/file/d/1pi3-8vZ-xr9p0AVR8tZmLaknj2kuhY7W/view](https://drive.google.com/file/d/1pi3-8vZ-xr9p0AVR8tZmLaknj2kuhY7W/view)",
         "secciones": [
-            { "id": "mars_exclusivas", "nombre": "Exclusivas", "nombre_largo": "Banner Separador Exclusivas", "img_local": "banners/mars_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1tOcO3nn8Dsa55rldjciutv5cFr0h_VNP/view", "es_separador": True, "rss": [], "keywords": [], "exclusiones": [], "limite": 0 },
-            { "id": "mars_tema_1", "nombre": "Corporativo", "nombre_largo": "Corporativo", "img_local": "banners/mars_corporativo.jpg", "img_url": "https://drive.google.com/file/d/1Vb7xaz32_V2lphPsAdJELhzPqeSERLJY/view", "rss": ["https://news.google.com/rss/search?q=Mars%20South%20Latam%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=Romina%20Ferreyra%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=Mattia%20Iannone%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=Whiskas%20when%3A7d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+            { "id": "mars_exclusivas", "nombre": "Exclusivas", "nombre_largo": "Banner Separador Exclusivas", "img_local": "banners/mars_exclusivas.jpg", "img_url": "[https://drive.google.com/file/d/1tOcO3nn8Dsa55rldjciutv5cFr0h_VNP/view](https://drive.google.com/file/d/1tOcO3nn8Dsa55rldjciutv5cFr0h_VNP/view)", "es_separador": True, "rss": [], "keywords": [], "exclusiones": [], "limite": 0 },
+            { "id": "mars_tema_1", "nombre": "Corporativo", "nombre_largo": "Corporativo", "img_local": "banners/mars_corporativo.jpg", "img_url": "[https://drive.google.com/file/d/1Vb7xaz32_V2lphPsAdJELhzPqeSERLJY/view](https://drive.google.com/file/d/1Vb7xaz32_V2lphPsAdJELhzPqeSERLJY/view)", "rss": ["[https://news.google.com/rss/search?q=Mars%20South%20Latam%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Mars%20South%20Latam%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+            "[https://news.google.com/rss/search?q=Romina%20Ferreyra%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Romina%20Ferreyra%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+            "[https://news.google.com/rss/search?q=Mattia%20Iannone%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Mattia%20Iannone%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+            "[https://news.google.com/rss/search?q=Whiskas%20when%3A7d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Whiskas%20when%3A7d&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
             "keywords": ["Mars", "South", "Latam", "Mars South Latam", "Romina Ferreyra", "Mattia Iannone", "Whiskas", "Pedigree"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
-            { "id": "mars_tema_2", "nombre": "Pet Nutrition", "nombre_largo": "Pet Nutrition", "img_local": "banners/mars_petnutrition.jpg", "img_url": "https://drive.google.com/file/d/1gayVCjqbhHsrPvm6XqO4jWFifqixT0gh/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Pet%20Nutrition%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pedigree", "Whiskas", "Mars Pet Nutrition", "Guadalupe Perez Torelli", "Mars Petcare"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
-            { "id": "mars_tema_3", "nombre": "Snacking", "nombre_largo": "Snacking", "img_local": "banners/mars_snacking.jpg", "img_url": "https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Snacking%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mars", "Snacking", "Mars Snacking"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
-            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Nestl%C3%A9%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Alican%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Eukanuba%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Purina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Metrive%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Sieger%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires"], "exclusiones": ["peru retail", "peru-retail", "mexico", "chile", "colombia"], "limite": 20 },
-            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", ], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru"], "limite": 20 }
+            { "id": "mars_tema_2", "nombre": "Pet Nutrition", "nombre_largo": "Pet Nutrition", "img_local": "banners/mars_petnutrition.jpg", "img_url": "[https://drive.google.com/file/d/1gayVCjqbhHsrPvm6XqO4jWFifqixT0gh/view](https://drive.google.com/file/d/1gayVCjqbhHsrPvm6XqO4jWFifqixT0gh/view)", "rss": ["[https://news.google.com/rss/search?q=Mars%20Pet%20Nutrition%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Mars%20Pet%20Nutrition%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["Pedigree", "Whiskas", "Mars Pet Nutrition", "Guadalupe Perez Torelli", "Mars Petcare"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
+            { "id": "mars_tema_3", "nombre": "Snacking", "nombre_largo": "Snacking", "img_local": "banners/mars_snacking.jpg", "img_url": "[https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view](https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view)", "rss": ["[https://news.google.com/rss/search?q=Mars%20Snacking%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Mars%20Snacking%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["Mars", "Snacking", "Mars Snacking"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
+            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "[https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view](https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view)", "rss": ["[https://news.google.com/rss/search?q=Nestl%C3%A9%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Nestl%C3%A9%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Alican%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Alican%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Eukanuba%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Eukanuba%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Purina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Purina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Vitalcan%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Vitalcan%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Metrive%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Metrive%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Sieger%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Sieger%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires"], "exclusiones": ["peru retail", "peru-retail", "mexico", "chile", "colombia"], "limite": 20 },
+            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "[https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view](https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view)", "rss": ["[https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", ], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru"], "limite": 20 }
         ]
     },
     "BMS": {
-        "color_primario": "#1A4FB5", "hoja_excel": "BMS", "banner_principal_local": "banners/bms_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1ruuvwWkVLVgu-ZJJ6wwEPF8S6snh5mUX/view",
+        "color_primario": "#1A4FB5", "hoja_excel": "BMS", "banner_principal_local": "banners/bms_principal.jpg", "banner_principal_url": "[https://drive.google.com/file/d/1ruuvwWkVLVgu-ZJJ6wwEPF8S6snh5mUX/view](https://drive.google.com/file/d/1ruuvwWkVLVgu-ZJJ6wwEPF8S6snh5mUX/view)",
         "secciones": [
-            { "id": "bms_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/bms_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1ZYHx7jQfemxr2S4g5crIpaGdDgJtXQds/view", "rss": ["https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=ARG%20Bristol%20Myers%20Squibb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+            { "id": "bms_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/bms_exclusivas.jpg", "img_url": "[https://drive.google.com/file/d/1ZYHx7jQfemxr2S4g5crIpaGdDgJtXQds/view](https://drive.google.com/file/d/1ZYHx7jQfemxr2S4g5crIpaGdDgJtXQds/view)", "rss": ["[https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+            "[https://news.google.com/rss/search?q=ARG%20Bristol%20Myers%20Squibb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=ARG%20Bristol%20Myers%20Squibb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)",
+            "[https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], 
             "keywords": ["Bristol Myers Squibb", "Bristol-Myers Squibb", "BMS"], "exclusiones": [], "limite": 20 },
-            { "id": "bms_tema_2", "nombre": "Noticias del Sector", "nombre_largo": "Noticias del Sector", "img_local": "banners/bms_noticiasdelsector.jpg", "img_url": "https://drive.google.com/file/d/1FhuuaWsEr2ywBp_QzKGuvwZOm1W6gekK/view", "rss": ["https://news.google.com/rss/search?q=Salud%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=medicamentos%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Ministro%20de%20Salud%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22obras%20sociales%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22investigaci%C3%B3n%20cl%C3%ADnica%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Salud", "medicamentos", "Ministro de Salud", "obras sociales", "investigación clínica"], "exclusiones": [], "limite": 20 },
-            { "id": "bms_tema_3", "nombre": "Propiedad Intelectual / Biosimilares", "nombre_largo": "Propiedad Intelectual / Biosmilares", "img_local": "banners/bms_propiedadintelectualbiosimilares.jpg", "img_url": "https://drive.google.com/file/d/12A4oDRQ7BlmY_zop1a0ThahV1JOFQ8vk/view", "rss": [], "keywords": [], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_4", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/bms_competencia.jpg", "img_url": "https://drive.google.com/file/d/1rZfcOHZGfwsk40-L8Ti0fIlp6z6spM9G/view", "rss": ["https://news.google.com/rss/search?q=Pfizer%20OR%20Astrazeneca%20OR%20Richmond%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Abbot%20OR%20Abbvie%20OR%20AMgen%20OR%20Boehringer%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Elanco%20OR%20%22Johnson%20%26%20Johnson%22%20OR%20%22Kimberly%20Clarck%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=mAbxience%20OR%20Lilly%20OR%20MERCK%20OR%20Novartis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Novo%20Nordick%22%20OR%20Roche%20OR%20Sanofi%20OR%20Takeda%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Zoetis%20OR%20%22Thermo%20Fisher%22%20OR%20Eczane%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pfizer", "Richmond", "Astrazeneca", "Abbot", "Abbvie", "Amgen", "Boehringer", "Elanco", "Johnson & Johnson", "Kimberly Clarck", "mAbxience", "Lilly", "Merck", "Novartis", "Novo Nordick", "Roche", "Sanofi", "Takeda", "Zoetis", "Thermo Fisher", "Eczane"], "exclusiones": [], "limite": 20 },
-            { "id": "bms_tema_5", "nombre": "Areas Terapeuticas", "nombre_largo": "Áreas Terapéuticas", "img_local": "banners/bms_areasterapeuticas.jpg", "img_url": "https://drive.google.com/file/d/1HXv0m__Xixd0NgE607eAWrVXFT73Xdy2/view", "es_separador": True, "rss": [], "keywords": [], "exclusiones": [], "limite": 0 },
-            { "id": "bms_tema_6", "nombre": "Onco-Hematologia", "nombre_largo": "Onco-Hematologia", "img_local": "banners/bms_oncohematologia.jpg", "img_url": "https://drive.google.com/file/d/1o8SGZMYZSZSsxqcYCZKPEhwWAh9T8sVx/view", "rss": ["https://news.google.com/rss/search?q=c%C3%A1ncer%20OR%20metastasis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=tumores%20OR%20melanoma%20OR%20linfoma%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["cáncer", "cancer", "metástasis", "metastasis", "tumores", "tumor", "melanoma", "linfoma"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_7", "nombre": "CAR-T", "nombre_largo": "CAR-T", "img_local": "banners/bms_cart.jpg", "img_url": "https://drive.google.com/file/d/1B6Rt1GJRhH2opmm9vnmTaLrRu8vVS0dW/view", "rss": ["https://news.google.com/rss/search?q=CAR-T%20OR%20%22terapia%20g%C3%A9nica%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=inmunoterapia%20linfocitos%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["CAR-T", "CAR T", "inmunoterapia", "terapia génica", "linfocitos T", "células cancerosas"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_8", "nombre": "Cardiología", "nombre_largo": "Cardiología", "img_local": "banners/bms_cardiologia.jpg", "img_url": "https://drive.google.com/file/d/1JtpFFXjYVcr-4nCyE_XaxLtfmobCp2_M/view", "rss": ["https://news.google.com/rss/search?q=ACV%20OR%20cardiolog%C3%ADa%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=cardiovascular%20OR%20%22presi%C3%B3n%20arterial%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["ACV", "cardiología", "cardiologia", "cardiovascular", "presión arterial", "presion arterial", "cardíaco", "cardiaco", "infarto"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_9", "nombre": "Artritis", "nombre_largo": "Artritis", "img_local": "banners/bms_artritis.jpg", "img_url": "https://drive.google.com/file/d/1qaHdfmIDmmgnDRj9VhJsU5qYuKw6B_ug/view", "rss": ["https://news.google.com/rss/search?q=artritis%20OR%20articulaciones%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22enfermedades%20reumaticas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["artritis", "articulaciones", "enfermedades reumáticas", "enfermedad reumática", "reuma"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_10", "nombre": "Psoriasis", "nombre_largo": "Psoriasis", "img_local": "banners/bms_psoriasis.jpg", "img_url": "https://drive.google.com/file/d/1VEZeFSymEKe5vHrNKLD08419502G_nqH/view", "rss": ["https://news.google.com/rss/search?q=psoriasis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["psoriasis"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_11", "nombre": "Trasplante", "nombre_largo": "Trasplante", "img_local": "banners/bms_trasplante.jpg", "img_url": "https://drive.google.com/file/d/1pHzriblnIvQl44uQrooGJXI4qGIE_YLU/view", "rss": ["https://news.google.com/rss/search?q=trasplante%20OR%20trasplantes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["trasplante", "trasplantes", "donación de órganos", "donacion de organos"], "exclusiones": [], "limite": 10 }
+            { "id": "bms_tema_2", "nombre": "Noticias del Sector", "nombre_largo": "Noticias del Sector", "img_local": "banners/bms_noticiasdelsector.jpg", "img_url": "[https://drive.google.com/file/d/1FhuuaWsEr2ywBp_QzKGuvwZOm1W6gekK/view](https://drive.google.com/file/d/1FhuuaWsEr2ywBp_QzKGuvwZOm1W6gekK/view)", "rss": ["[https://news.google.com/rss/search?q=Salud%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Salud%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=medicamentos%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=medicamentos%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22Ministro%20de%20Salud%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22Ministro%20de%20Salud%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22obras%20sociales%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22obras%20sociales%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22investigaci%C3%B3n%20cl%C3%ADnica%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22investigaci%C3%B3n%20cl%C3%ADnica%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["Salud", "medicamentos", "Ministro de Salud", "obras sociales", "investigación clínica"], "exclusiones": [], "limite": 20 },
+            { "id": "bms_tema_3", "nombre": "Propiedad Intelectual / Biosimilares", "nombre_largo": "Propiedad Intelectual / Biosmilares", "img_local": "banners/bms_propiedadintelectualbiosimilares.jpg", "img_url": "[https://drive.google.com/file/d/12A4oDRQ7BlmY_zop1a0ThahV1JOFQ8vk/view](https://drive.google.com/file/d/12A4oDRQ7BlmY_zop1a0ThahV1JOFQ8vk/view)", "rss": [], "keywords": [], "exclusiones": [], "limite": 10 },
+            { "id": "bms_tema_4", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/bms_competencia.jpg", "img_url": "[https://drive.google.com/file/d/1rZfcOHZGfwsk40-L8Ti0fIlp6z6spM9G/view](https://drive.google.com/file/d/1rZfcOHZGfwsk40-L8Ti0fIlp6z6spM9G/view)", "rss": ["[https://news.google.com/rss/search?q=Pfizer%20OR%20Astrazeneca%20OR%20Richmond%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Pfizer%20OR%20Astrazeneca%20OR%20Richmond%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Abbot%20OR%20Abbvie%20OR%20AMgen%20OR%20Boehringer%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Abbot%20OR%20Abbvie%20OR%20AMgen%20OR%20Boehringer%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Elanco%20OR%20%22Johnson%20%26%20Johnson%22%20OR%20%22Kimberly%20Clarck%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Elanco%20OR%20%22Johnson%20%26%20Johnson%22%20OR%20%22Kimberly%20Clarck%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=mAbxience%20OR%20Lilly%20OR%20MERCK%20OR%20Novartis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=mAbxience%20OR%20Lilly%20OR%20MERCK%20OR%20Novartis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22Novo%20Nordick%22%20OR%20Roche%20OR%20Sanofi%20OR%20Takeda%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22Novo%20Nordick%22%20OR%20Roche%20OR%20Sanofi%20OR%20Takeda%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Zoetis%20OR%20%22Thermo%20Fisher%22%20OR%20Eczane%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Zoetis%20OR%20%22Thermo%20Fisher%22%20OR%20Eczane%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["Pfizer", "Richmond", "Astrazeneca", "Abbot", "Abbvie", "Amgen", "Boehringer", "Elanco", "Johnson & Johnson", "Kimberly Clarck", "mAbxience", "Lilly", "Merck", "Novartis", "Novo Nordick", "Roche", "Sanofi", "Takeda", "Zoetis", "Thermo Fisher", "Eczane"], "exclusiones": [], "limite": 20 },
+            { "id": "bms_tema_5", "nombre": "Areas Terapeuticas", "nombre_largo": "Áreas Terapéuticas", "img_local": "banners/bms_areasterapeuticas.jpg", "img_url": "[https://drive.google.com/file/d/1HXv0m__Xixd0NgE607eAWrVXFT73Xdy2/view](https://drive.google.com/file/d/1HXv0m__Xixd0NgE607eAWrVXFT73Xdy2/view)", "es_separador": True, "rss": [], "keywords": [], "exclusiones": [], "limite": 0 },
+            { "id": "bms_tema_6", "nombre": "Onco-Hematologia", "nombre_largo": "Onco-Hematologia", "img_local": "banners/bms_oncohematologia.jpg", "img_url": "[https://drive.google.com/file/d/1o8SGZMYZSZSsxqcYCZKPEhwWAh9T8sVx/view](https://drive.google.com/file/d/1o8SGZMYZSZSsxqcYCZKPEhwWAh9T8sVx/view)", "rss": ["[https://news.google.com/rss/search?q=c%C3%A1ncer%20OR%20metastasis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=c%C3%A1ncer%20OR%20metastasis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=tumores%20OR%20melanoma%20OR%20linfoma%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=tumores%20OR%20melanoma%20OR%20linfoma%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["cáncer", "cancer", "metástasis", "metastasis", "tumores", "tumor", "melanoma", "linfoma"], "exclusiones": [], "limite": 10 },
+            { "id": "bms_tema_7", "nombre": "CAR-T", "nombre_largo": "CAR-T", "img_local": "banners/bms_cart.jpg", "img_url": "[https://drive.google.com/file/d/1B6Rt1GJRhH2opmm9vnmTaLrRu8vVS0dW/view](https://drive.google.com/file/d/1B6Rt1GJRhH2opmm9vnmTaLrRu8vVS0dW/view)", "rss": ["[https://news.google.com/rss/search?q=CAR-T%20OR%20%22terapia%20g%C3%A9nica%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=CAR-T%20OR%20%22terapia%20g%C3%A9nica%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=inmunoterapia%20linfocitos%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=inmunoterapia%20linfocitos%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["CAR-T", "CAR T", "inmunoterapia", "terapia génica", "linfocitos T", "células cancerosas"], "exclusiones": [], "limite": 10 },
+            { "id": "bms_tema_8", "nombre": "Cardiología", "nombre_largo": "Cardiología", "img_local": "banners/bms_cardiologia.jpg", "img_url": "[https://drive.google.com/file/d/1JtpFFXjYVcr-4nCyE_XaxLtfmobCp2_M/view](https://drive.google.com/file/d/1JtpFFXjYVcr-4nCyE_XaxLtfmobCp2_M/view)", "rss": ["[https://news.google.com/rss/search?q=ACV%20OR%20cardiolog%C3%ADa%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=ACV%20OR%20cardiolog%C3%ADa%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=cardiovascular%20OR%20%22presi%C3%B3n%20arterial%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=cardiovascular%20OR%20%22presi%C3%B3n%20arterial%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["ACV", "cardiología", "cardiologia", "cardiovascular", "presión arterial", "presion arterial", "cardíaco", "cardiaco", "infarto"], "exclusiones": [], "limite": 10 },
+            { "id": "bms_tema_9", "nombre": "Artritis", "nombre_largo": "Artritis", "img_local": "banners/bms_artritis.jpg", "img_url": "[https://drive.google.com/file/d/1qaHdfmIDmmgnDRj9VhJsU5qYuKw6B_ug/view](https://drive.google.com/file/d/1qaHdfmIDmmgnDRj9VhJsU5qYuKw6B_ug/view)", "rss": ["[https://news.google.com/rss/search?q=artritis%20OR%20articulaciones%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=artritis%20OR%20articulaciones%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22enfermedades%20reumaticas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22enfermedades%20reumaticas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["artritis", "articulaciones", "enfermedades reumáticas", "enfermedad reumática", "reuma"], "exclusiones": [], "limite": 10 },
+            { "id": "bms_tema_10", "nombre": "Psoriasis", "nombre_largo": "Psoriasis", "img_local": "banners/bms_psoriasis.jpg", "img_url": "[https://drive.google.com/file/d/1VEZeFSymEKe5vHrNKLD08419502G_nqH/view](https://drive.google.com/file/d/1VEZeFSymEKe5vHrNKLD08419502G_nqH/view)", "rss": ["[https://news.google.com/rss/search?q=psoriasis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=psoriasis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["psoriasis"], "exclusiones": [], "limite": 10 },
+            { "id": "bms_tema_11", "nombre": "Trasplante", "nombre_largo": "Trasplante", "img_local": "banners/bms_trasplante.jpg", "img_url": "[https://drive.google.com/file/d/1pHzriblnIvQl44uQrooGJXI4qGIE_YLU/view](https://drive.google.com/file/d/1pHzriblnIvQl44uQrooGJXI4qGIE_YLU/view)", "rss": ["[https://news.google.com/rss/search?q=trasplante%20OR%20trasplantes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=trasplante%20OR%20trasplantes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["trasplante", "trasplantes", "donación de órganos", "donacion de organos"], "exclusiones": [], "limite": 10 }
         ]
     },
     "Arredo": {
-        "color_primario": "#0000FF", "hoja_excel": "Arredo", "banner_principal_local": "banners/arredo_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1MESH-P0uDrBHX83uNEstihGcH2eEC6UU/view",
+        "color_primario": "#0000FF", "hoja_excel": "Arredo", "banner_principal_local": "banners/arredo_principal.jpg", "banner_principal_url": "[https://drive.google.com/file/d/1MESH-P0uDrBHX83uNEstihGcH2eEC6UU/view](https://drive.google.com/file/d/1MESH-P0uDrBHX83uNEstihGcH2eEC6UU/view)",
         "secciones": [
-            { "id": "arredo_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/arredo_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/18HsLa3b-kNOtgaR5YYxMlaUo6UvHpxJH/view", "rss": ["https://news.google.com/rss/search?q=Arredo%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
-            { "id": "arredo_tema_2", "nombre": "Mención", "nombre_largo": "Menciones", "img_local": "banners/arredo_menciones.jpg", "img_url": "https://drive.google.com/file/d/19U90rGK_pWlKGssHxlYX9Zu-cQGoA4Ce/view", "rss": [], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
-            { "id": "arredo_tema_3", "nombre": "Recursos Humanos", "nombre_largo": "Recursos Humanos", "img_local": "banners/arredo_recursoshumanos.jpg", "img_url": "https://drive.google.com/file/d/1zXnXWvMT-CKfFEgB2dbjqNZWtOvOCisQ/view", "rss": [], "keywords": ["inclusión laboral", "informalidad", "becas", "pasantías", "mejores empresas", "mejor empresa", "trabajar", "empleo", "derechos laborales", "mercado laboral", "liderazgo"], "exclusiones": [], "limite": 20 },
-            { "id": "arredo_tema_4", "nombre": "Diversidad y Género", "nombre_largo": "Diversidad y Género", "img_local": "banners/arredo_diversidadygenero.jpg", "img_url": "https://drive.google.com/file/d/17P15vUG1zciLz_-j3sFKUax-nIpqAcsO/view", "rss": [], "keywords": ["mujeres", "inclusión", "mujeres", "mujeres emprendedoras", "mujeres profesionales", "violencia de género", "brecha salarial", "primer empleo", "empleo joven"], "exclusiones": [], "limite": 20 },
-            { "id": "arredo_tema_5", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/arredo_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1WSuNM_EBYjj45-K2T-qtFtONuseJ7TCU/view", "rss": [], "keywords": ["Empresa B", "sustentabilidad", "energía renovable", "reciclar", "reciclado", "economía circular"], "exclusiones": [], "limite": 10 },
-            { "id": "arredo_tema_6", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/arredo_competencia.jpg", "img_url": "https://drive.google.com/file/d/1VxLJRHbvfqtOgLBWeVqGquFxnNX0-swx/view", "rss": [], "keywords": ["Home Collection", "Duvet Home", "Kavanagh", "Landmark", "Indian", "Casablanca", "Jean Cartier", "Ad Home", "Egger", "H&G Home", "AltoRancho", "Franco Valente"], "exclusiones": [], "limite": 10 },
-            { "id": "arredo_tema_7", "nombre": "Noticias de Interes", "nombre_largo": "Noticias de Interes", "img_local": "banners/arredo_noticiasdeinteres.jpg", "img_url": "https://drive.google.com/file/d/1rVjjNmlVdhJU2Ed7wJVV4wwhkqeF70rH/view", "rss": ["https://news.google.com/rss/search?q=industria%20textil%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=inflaci%C3%B3n%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["textil", "industria", "industria textil", "fabrica", "fabricas", "inflación", "pymes", "consumo", "pobreza", "dormir", "decoración", "ropa de cama", "hábitos de sueño", "ecommerce"], "exclusiones": [], "limite": 20 }
+            { "id": "arredo_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/arredo_exclusivas.jpg", "img_url": "[https://drive.google.com/file/d/18HsLa3b-kNOtgaR5YYxMlaUo6UvHpxJH/view](https://drive.google.com/file/d/18HsLa3b-kNOtgaR5YYxMlaUo6UvHpxJH/view)", "rss": ["[https://news.google.com/rss/search?q=Arredo%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Arredo%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
+            { "id": "arredo_tema_2", "nombre": "Mención", "nombre_largo": "Menciones", "img_local": "banners/arredo_menciones.jpg", "img_url": "[https://drive.google.com/file/d/19U90rGK_pWlKGssHxlYX9Zu-cQGoA4Ce/view](https://drive.google.com/file/d/19U90rGK_pWlKGssHxlYX9Zu-cQGoA4Ce/view)", "rss": [], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
+            { "id": "arredo_tema_3", "nombre": "Recursos Humanos", "nombre_largo": "Recursos Humanos", "img_local": "banners/arredo_recursoshumanos.jpg", "img_url": "[https://drive.google.com/file/d/1zXnXWvMT-CKfFEgB2dbjqNZWtOvOCisQ/view](https://drive.google.com/file/d/1zXnXWvMT-CKfFEgB2dbjqNZWtOvOCisQ/view)", "rss": [], "keywords": ["inclusión laboral", "informalidad", "becas", "pasantías", "mejores empresas", "mejor empresa", "trabajar", "empleo", "derechos laborales", "mercado laboral", "liderazgo"], "exclusiones": [], "limite": 20 },
+            { "id": "arredo_tema_4", "nombre": "Diversidad y Género", "nombre_largo": "Diversidad y Género", "img_local": "banners/arredo_diversidadygenero.jpg", "img_url": "[https://drive.google.com/file/d/17P15vUG1zciLz_-j3sFKUax-nIpqAcsO/view](https://drive.google.com/file/d/17P15vUG1zciLz_-j3sFKUax-nIpqAcsO/view)", "rss": [], "keywords": ["mujeres", "inclusión", "mujeres", "mujeres emprendedoras", "mujeres profesionales", "violencia de género", "brecha salarial", "primer empleo", "empleo joven"], "exclusiones": [], "limite": 20 },
+            { "id": "arredo_tema_5", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/arredo_sustentabilidad.jpg", "img_url": "[https://drive.google.com/file/d/1WSuNM_EBYjj45-K2T-qtFtONuseJ7TCU/view](https://drive.google.com/file/d/1WSuNM_EBYjj45-K2T-qtFtONuseJ7TCU/view)", "rss": [], "keywords": ["Empresa B", "sustentabilidad", "energía renovable", "reciclar", "reciclado", "economía circular"], "exclusiones": [], "limite": 10 },
+            { "id": "arredo_tema_6", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/arredo_competencia.jpg", "img_url": "[https://drive.google.com/file/d/1VxLJRHbvfqtOgLBWeVqGquFxnNX0-swx/view](https://drive.google.com/file/d/1VxLJRHbvfqtOgLBWeVqGquFxnNX0-swx/view)", "rss": [], "keywords": ["Home Collection", "Duvet Home", "Kavanagh", "Landmark", "Indian", "Casablanca", "Jean Cartier", "Ad Home", "Egger", "H&G Home", "AltoRancho", "Franco Valente"], "exclusiones": [], "limite": 10 },
+            { "id": "arredo_tema_7", "nombre": "Noticias de Interes", "nombre_largo": "Noticias de Interes", "img_local": "banners/arredo_noticiasdeinteres.jpg", "img_url": "[https://drive.google.com/file/d/1rVjjNmlVdhJU2Ed7wJVV4wwhkqeF70rH/view](https://drive.google.com/file/d/1rVjjNmlVdhJU2Ed7wJVV4wwhkqeF70rH/view)", "rss": ["[https://news.google.com/rss/search?q=industria%20textil%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=industria%20textil%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=inflaci%C3%B3n%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=inflaci%C3%B3n%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["textil", "industria", "industria textil", "fabrica", "fabricas", "inflación", "pymes", "consumo", "pobreza", "dormir", "decoración", "ropa de cama", "hábitos de sueño", "ecommerce"], "exclusiones": [], "limite": 20 }
         ]
     },
     "Amanco Wavin": {
-        "color_primario": "#000099", "hoja_excel": "Amanco", "banner_principal_local": "banners/amanco_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1gFQAqAPm3xiGlDKM72Plr5fT19IF-5Z4/view",
+        "color_primario": "#000099", "hoja_excel": "Amanco", "banner_principal_local": "banners/amanco_principal.jpg", "banner_principal_url": "[https://drive.google.com/file/d/1gFQAqAPm3xiGlDKM72Plr5fT19IF-5Z4/view](https://drive.google.com/file/d/1gFQAqAPm3xiGlDKM72Plr5fT19IF-5Z4/view)",
         "secciones": [
-            { "id": "amanco_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/amanco_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1_vg5keIN7jMt7FCOFjGxgVNbXGxGnjOW/view", "rss": ["https://news.google.com/rss/search?q=Amanco%20Wavin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Amanco Wavin"], "exclusiones": [], "limite": 20 },
-            { "id": "amanco_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/amanco_competencia.jpg", "img_url": "https://drive.google.com/file/d/1nQos7Azcml2O5DRZCD4Hfrs-xe5Mao8W/view", "rss": [], "keywords": ["FV", "Ferrum", "Rotoplas", "DEMA", "Duke", "Aqualaf", "AWADUCT", "Roca"], "exclusiones": [], "limite": 10 },
-            { "id": "amanco_tema_3", "nombre": "Industria e Infraestructura", "nombre_largo": "Industria e Infraestructura", "img_local": "banners/amanco_industriaeinfraestructura.jpg", "img_url": "https://drive.google.com/file/d/1-6eOexICM6t-Iiro5dIUfP1WDSLxz7U6/view", "rss": ["https://news.google.com/rss/search?q=infraestructura%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=prefabricada%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ducha%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Aysa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ARG%20alba%C3%B1il%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["vivienda", "obra pública", "Infraestructura", "rutas", "construcción", "construir", "albañil", "inflación", "obras", "agua", "riego", "plomero", "plomería", "baño", "baños", "hídricos", "materiales", "Loma Negra", "prefabricada", "casa", "casas", "Aysa", "AySa"], "exclusiones": ["rural", "sanitaria"], "limite": 10 },
-            { "id": "amanco_tema_4", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/amanco_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1ILvTnUcm-FF7lbWStCXUqYsRe8pyhxHB/view", "rss": ["https://news.google.com/search?q=Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["sustentable", "sustentabilidad", "Empresa B"], "exclusiones": [], "limite": 10 }
+            { "id": "amanco_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/amanco_exclusivas.jpg", "img_url": "[https://drive.google.com/file/d/1_vg5keIN7jMt7FCOFjGxgVNbXGxGnjOW/view](https://drive.google.com/file/d/1_vg5keIN7jMt7FCOFjGxgVNbXGxGnjOW/view)", "rss": ["[https://news.google.com/rss/search?q=Amanco%20Wavin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Amanco%20Wavin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["Amanco Wavin"], "exclusiones": [], "limite": 20 },
+            { "id": "amanco_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/amanco_competencia.jpg", "img_url": "[https://drive.google.com/file/d/1nQos7Azcml2O5DRZCD4Hfrs-xe5Mao8W/view](https://drive.google.com/file/d/1nQos7Azcml2O5DRZCD4Hfrs-xe5Mao8W/view)", "rss": [], "keywords": ["FV", "Ferrum", "Rotoplas", "DEMA", "Duke", "Aqualaf", "AWADUCT", "Roca"], "exclusiones": [], "limite": 10 },
+            { "id": "amanco_tema_3", "nombre": "Industria e Infraestructura", "nombre_largo": "Industria e Infraestructura", "img_local": "banners/amanco_industriaeinfraestructura.jpg", "img_url": "[https://drive.google.com/file/d/1-6eOexICM6t-Iiro5dIUfP1WDSLxz7U6/view](https://drive.google.com/file/d/1-6eOexICM6t-Iiro5dIUfP1WDSLxz7U6/view)", "rss": ["[https://news.google.com/rss/search?q=infraestructura%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=infraestructura%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=prefabricada%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=prefabricada%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=ducha%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=ducha%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Aysa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Aysa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=ARG%20alba%C3%B1il%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=ARG%20alba%C3%B1il%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["vivienda", "obra pública", "Infraestructura", "rutas", "construcción", "construir", "albañil", "inflación", "obras", "agua", "riego", "plomero", "plomería", "baño", "baños", "hídricos", "materiales", "Loma Negra", "prefabricada", "casa", "casas", "Aysa", "AySa"], "exclusiones": ["rural", "sanitaria"], "limite": 10 },
+            { "id": "amanco_tema_4", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/amanco_sustentabilidad.jpg", "img_url": "[https://drive.google.com/file/d/1ILvTnUcm-FF7lbWStCXUqYsRe8pyhxHB/view](https://drive.google.com/file/d/1ILvTnUcm-FF7lbWStCXUqYsRe8pyhxHB/view)", "rss": ["[https://news.google.com/search?q=Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/search?q=Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["sustentable", "sustentabilidad", "Empresa B"], "exclusiones": [], "limite": 10 }
         ]
     },
     "Booking": {
-        "color_primario": "#0000FF", "hoja_excel": "Booking", "banner_principal_local": "banners/booking_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1TKf_eTU4sWBk_9pYG5iBI4r6CKA52Fz4/view",
+        "color_primario": "#0000FF", "hoja_excel": "Booking", "banner_principal_local": "banners/booking_principal.jpg", "banner_principal_url": "[https://drive.google.com/file/d/1TKf_eTU4sWBk_9pYG5iBI4r6CKA52Fz4/view](https://drive.google.com/file/d/1TKf_eTU4sWBk_9pYG5iBI4r6CKA52Fz4/view)",
         "secciones": [
-            { "id": "booking_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/booking_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1IkOGzUtBEw_TWkf5AgdWK4-5yXmCk5gf/view", "rss": ["https://news.google.com/rss/search?q=Booking%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Booking", "Booking.com", "Booking Argentina", "Booking Holding"], "exclusiones": ["Bavaro", "ArchDaily"], "limite": 20 },
-            { "id": "booking_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/booking_competencia.jpg", "img_url": "https://drive.google.com/file/d/1SD6Qf6FxN8lvIuwqiywS8hCThh5IGH4B/view", "rss": ["https://news.google.com/rss/search?q=Airbnb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Almundo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Turismocity%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tripadvisor%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Expedia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Airbnb", "Turismocity", "Almundo", "Tripadvisor", "Expedia"], "exclusiones": [], "limite": 20 },
-            { "id": "booking_tema_3", "nombre": "Turismo", "nombre_largo": "Turismo", "img_local": "banners/booking_turismo.jpg", "img_url": "https://drive.google.com/file/d/1PVMiBHJuTBdm7YQn6OF1c9F31gvyckZR/view", "rss": ["https://news.google.com/rss/search?q=ARG%20%22Turismo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ARG%20%22Vacaciones%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ARG%20%22viajes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["turismo", "viajes", "viajar", "vacaciones", "pasajes", "vuelos", "hoteles", "hospedaje"], "exclusiones": ["jugadores", "jugador", "Lionel Scaloni", "futbol", "futbolista", "Messi", "selección", "famosos", "actor", "actriz", "romance", "novio", "novia", "farándula", "gran hermano", "teatro", "separación", "escándalo", "modelo", "cantante"], "limite": 30 }
+            { "id": "booking_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/booking_exclusivas.jpg", "img_url": "[https://drive.google.com/file/d/1IkOGzUtBEw_TWkf5AgdWK4-5yXmCk5gf/view](https://drive.google.com/file/d/1IkOGzUtBEw_TWkf5AgdWK4-5yXmCk5gf/view)", "rss": ["[https://news.google.com/rss/search?q=Booking%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Booking%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["Booking", "Booking.com", "Booking Argentina", "Booking Holding"], "exclusiones": ["Bavaro", "ArchDaily"], "limite": 20 },
+            { "id": "booking_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/booking_competencia.jpg", "img_url": "[https://drive.google.com/file/d/1SD6Qf6FxN8lvIuwqiywS8hCThh5IGH4B/view](https://drive.google.com/file/d/1SD6Qf6FxN8lvIuwqiywS8hCThh5IGH4B/view)", "rss": ["[https://news.google.com/rss/search?q=Airbnb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Airbnb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=%22Almundo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=%22Almundo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Turismocity%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Turismocity%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Tripadvisor%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Tripadvisor%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=Expedia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=Expedia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["Airbnb", "Turismocity", "Almundo", "Tripadvisor", "Expedia"], "exclusiones": [], "limite": 20 },
+            { "id": "booking_tema_3", "nombre": "Turismo", "nombre_largo": "Turismo", "img_local": "banners/booking_turismo.jpg", "img_url": "[https://drive.google.com/file/d/1PVMiBHJuTBdm7YQn6OF1c9F31gvyckZR/view](https://drive.google.com/file/d/1PVMiBHJuTBdm7YQn6OF1c9F31gvyckZR/view)", "rss": ["[https://news.google.com/rss/search?q=ARG%20%22Turismo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=ARG%20%22Turismo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=ARG%20%22Vacaciones%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=ARG%20%22Vacaciones%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)", "[https://news.google.com/rss/search?q=ARG%20%22viajes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419](https://news.google.com/rss/search?q=ARG%20%22viajes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419)"], "keywords": ["turismo", "viajes", "viajar", "vacaciones", "pasajes", "vuelos", "hoteles", "hospedaje"], "exclusiones": ["jugadores", "jugador", "Lionel Scaloni", "futbol", "futbolista", "Messi", "selección", "famosos", "actor", "actriz", "romance", "novio", "novia", "farándula", "gran hermano", "teatro", "separación", "escándalo", "modelo", "cantante"], "limite": 30 }
         ]
     }
 }
@@ -255,6 +279,7 @@ class AppState:
     def __init__(self):
         self.cliente = list(CLIENTES_CONFIG.keys())[0]
         self.timeframe = "1d"
+        self.usar_filtro_ia = True
         self.extra_searches = [{"q": "", "sec": ""}]
         self.links_manuales = {}
         self.graficas = {}
@@ -286,7 +311,7 @@ def sincronizar_base_medios(cliente_nombre, logger):
         match = re.search(r'/d/([a-zA-Z0-9-_]+)', LINK_EXCEL_DRIVE)
         if match:
             file_id = match.group(1)
-            url_descarga = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
+            url_descarga = f"[https://docs.google.com/spreadsheets/d/](https://docs.google.com/spreadsheets/d/){file_id}/export?format=xlsx"
             req_excel = urllib.request.Request(url_descarga, headers={'User-Agent': 'Mozilla/5.0'})
             resp_excel = urllib.request.urlopen(req_excel)
             xls_cargado = pd.ExcelFile(io.BytesIO(resp_excel.read()))
@@ -372,7 +397,7 @@ def transformar_link_drive(url):
     if not url: return ""
     url_limpia = str(url).replace(" ", "").strip()
     match = re.search(r'drive\.google\.com/file/d/([a-zA-Z0-9_-]+)', url_limpia)
-    if match: return f"https://lh3.googleusercontent.com/d/{match.group(1)}"
+    if match: return f"[https://lh3.googleusercontent.com/d/](https://lh3.googleusercontent.com/d/){match.group(1)}"
     return url_limpia
 
 def obtener_resumen_metadata(page):
@@ -495,7 +520,7 @@ def sort_key_final(n, sec_id):
     else:
         return (es_grafica, medio_lower)
 
-def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, solo_manuales=False):
+def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, solo_manuales=False, usar_filtro_ia=True):
     items = []
     secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
 
@@ -618,9 +643,9 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
             if not contiene_palabra_clave(texto_eval, palabras_clave):
                 continue
             
-            # FILTRO DE RELEVANCIA INTELIGENTE POR IA
-            if USAR_FILTRO_RELEVANCIA_IA:
-                if not evaluar_relevancia_ia(titulo, f"{bajada} {oracion}", cliente_nombre, palabras_clave, logger):
+            # FILTRO DE RELEVANCIA INTELIGENTE POR IA (CONTROLADO POR TOGGLE USER)
+            if usar_filtro_ia:
+                if not evaluar_relevancia_ia(titulo, f"{bajada} {oracion}", cliente_nombre, palabras_clave, medio, nombre_seccion, logger, usar_filtro_ia):
                     logger(f"    🤖 EXCLUIDO por IA (Filtro Relevancia): {medio[:20]} - {titulo[:30]}...")
                     continue
 
@@ -663,7 +688,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
 
     return noticias_finales
 
-def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente, cliente_nombre, logger, timeframe_google, solo_manuales=False, solo_banners=False):
+def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente, cliente_nombre, logger, timeframe_google, solo_manuales=False, solo_banners=False, usar_filtro_ia=True):
     color = configuracion_cliente["color_primario"]
     estructura = configuracion_cliente["secciones"]
     data_editor = []
@@ -694,7 +719,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
             notas_seccion = procesar_seccion(
                 context, sec['id'], sec['nombre'], rss_ajustado, 
                 links_manuales.get(sec['id'], []), notas_graficas.get(sec['id'], []),
-                sec['keywords'], sec.get('exclusiones', []), color, sec['limite'], logger, cliente_nombre, df_medios, solo_manuales=solo_manuales
+                sec['keywords'], sec.get('exclusiones', []), color, sec['limite'], logger, cliente_nombre, df_medios, solo_manuales=solo_manuales, usar_filtro_ia=usar_filtro_ia
             )
 
             img_url = transformar_link_drive(sec.get('img_url', ''))
@@ -726,9 +751,9 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Editor de Reporte (Quill.js)</title>
-    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    <link href="[https://cdn.quilljs.com/1.3.6/quill.snow.css](https://cdn.quilljs.com/1.3.6/quill.snow.css)" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @import url('[https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap)');
         :root{ --tema_color:__COLOR_CLIENTE__; --bg:#f4f4f9; }
         
         body { 
@@ -965,7 +990,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         </div>
     </div>
 
-    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    <script src="[https://cdn.quilljs.com/1.3.6/quill.js](https://cdn.quilljs.com/1.3.6/quill.js)"></script>
     <script>
         const BANNER_PRINCIPAL = __BANNER_PRINCIPAL_JSON__;
         const DATA_INICIAL = __DATA_INICIAL_JSON__;
@@ -1095,13 +1120,13 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 
             let texto_completo = textos_notas.join("\n").substring(0, 2500);
             
-            let prompt = `Redacta un resumen de los siguientes textos en un único párrafo fluido de máximo 2 oraciones.\n\nReglas strictly obligatorias:\n1. NO menciones ningún sitio web, portal ni medio de comunicación.\n2. NO copies ni menciones títulos de noticias.\n3. Escribe un párrafo de lectura natural (no uses listas, ni viñetas, ni guiones).\n4. Responde ÚNICAMENTE con el texto del resumen final, sin introducciones ni comentarios extra.\n\nTextos a resumir:\n${texto_completo}`;
+            let prompt = `Redacta un resumen de los siguientes textos en un único párrafo fluido de máximo 2 oraciones.\n\nReglas estrictas obligatorias:\n1. NO menciones ningún sitio web, portal ni medio de comunicación.\n2. NO copies ni menciones títulos de noticias.\n3. Escribe un párrafo de lectura natural (no uses listas, ni viñetas, ni guiones).\n4. Responde ÚNICAMENTE con el texto del resumen final, sin introducciones ni comentarios extra.\n\nTextos a resumir:\n${texto_completo}`;
 
             btnElement.innerHTML = '⏳ Generando...';
             btnElement.disabled = true;
 
             try {
-                const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                const response = await fetch('[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${GROQ_API_KEY}`,
@@ -1584,6 +1609,11 @@ async def index():
         ui.label('⏱️ Rango de Búsqueda').classes('text-lg font-bold text-gray-800 mb-2')
         ui.radio({"1d": "Últimas 24 hs", "3d": "Últimos 3 días", "5d": "Toda la semana"}, value=state.timeframe).bind_value(state, 'timeframe').classes('mb-6')
         ui.separator().classes('mb-6')
+
+        # INTERRUPTOR PARA FILTRO DE RELEVANCIA DE IA
+        ui.label('🤖 Inteligencia Artificial').classes('text-lg font-bold text-gray-800 mb-2')
+        ui.switch('Filtro de Relevancia IA', value=state.usar_filtro_ia).bind_value(state, 'usar_filtro_ia').classes('mb-6 font-medium text-gray-700')
+        ui.separator().classes('mb-6')
         
         @ui.refreshable
         def sidebar_content():
@@ -1610,7 +1640,7 @@ async def index():
         state.log_container.classes(remove='hidden')
         state.log_container.push("🚀 Iniciando motor de procesamiento...")
         
-        registrar_actividad(app.storage.tab.get('username', 'usuario'), "Generó Reporte", f"Cliente: {state.cliente} | Manuales: {solo_manuales} | Banners: {solo_banners}")
+        registrar_actividad(app.storage.tab.get('username', 'usuario'), "Generó Reporte", f"Cliente: {state.cliente} | Filtro IA: {state.usar_filtro_ia} | Manuales: {solo_manuales} | Banners: {solo_banners}")
         
         start_time = datetime.datetime.now()
         def update_chrono():
@@ -1650,7 +1680,8 @@ async def index():
                 safe_logger,
                 state.timeframe,
                 solo_manuales,
-                solo_banners
+                solo_banners,
+                state.usar_filtro_ia
             )
             
             flush_logs()

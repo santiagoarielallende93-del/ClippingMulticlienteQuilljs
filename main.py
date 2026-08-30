@@ -27,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.5"
+APP_VERSION = "2.6"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -653,7 +653,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     return data_editor
 
 # ====================================================================
-# GENERADOR HTML QUILL.JS CON AUTOGUARDADO E INICIALIZACIÓN DIRECTA
+# GENERADOR HTML QUILL.JS CON HERRAMIENTA NATIVA DE HIPERVÍNCULOS
 # ====================================================================
 def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     banner_limpio = transformar_link_drive(banner_url)
@@ -1265,7 +1265,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                     if (el) {
                         const q = new Quill(`#${editorDivId}`, {
                             theme: 'snow',
-                            modules: { toolbar: [['bold', 'italic', 'underline'], [{ 'color': misColores }], ['clean']] }
+                            modules: { toolbar: [['bold', 'italic', 'underline', 'link'], [{ 'color': misColores }], ['clean']] }
                         });
 
                         q.root.addEventListener('paste', function(e) {
@@ -1435,7 +1435,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             document.getElementById('modal-preview').style.display = 'flex';
         }
 
-        // RENDERIZADO INMEDIATO Y BÚSQUEDA SECUNDARIA EN INDEXEDDB
+        // RENDERIZADO INMEDIATO
         render();
 
         if (restoredFromStorage) {
@@ -1461,7 +1461,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     return plantilla
 
 # ====================================================================
-# INTERFAZ NICEGUI (CON FONDO CON TRAMA GRÁFICA SEMI-TRANSPARENTE)
+# INTERFAZ NICEGUI
 # ====================================================================
 
 @ui.page('/')

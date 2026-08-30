@@ -5,7 +5,6 @@ if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from nicegui import ui, app, run
-import urllib.request
 import urllib.parse
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
@@ -27,7 +26,8 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "3.2"
+APP_VERSION = "3.3"
+USAR_FILTRO_RELEVANCIA_IA = True  # Cambiar a False para desactivar el filtro de IA
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -301,7 +301,7 @@ class AppState:
 state = AppState()
 
 # ====================================================================
-# CARGA Y SINCRONIZACIÓN DE EXCEL (MÉTRICAS)
+# CARGA Y SINCRONIZACIÓN DE EXCEL (MÉTRICAS) VIA REQUESTS
 # ====================================================================
 def sincronizar_base_medios(cliente_nombre, logger):
     logger("📁 Sincronizando Base de Medios desde Google Drive...")
@@ -312,17 +312,14 @@ def sincronizar_base_medios(cliente_nombre, logger):
         if match:
             file_id = match.group(1)
             url_descarga = f"[https://docs.google.com/spreadsheets/d/](https://docs.google.com/spreadsheets/d/){file_id}/export?format=xlsx"
-            req_excel = urllib.request.Request(url_descarga, headers={'User-Agent': 'Mozilla/5.0'})
-            resp_excel = urllib.request.urlopen(req_excel)
-            xls_cargado = pd.ExcelFile(io.BytesIO(resp_excel.read()))
-            
-            df_medios = pd.read_excel(xls_cargado, sheet_name=0)
-            
-            hoja_cliente = CLIENTES_CONFIG[cliente_nombre].get("hoja_excel", cliente_nombre)
-            if hoja_cliente in xls_cargado.sheet_names:
-                df_feeds = pd.read_excel(xls_cargado, sheet_name=hoja_cliente)
-                
-            logger("✅ Base de Medios sincronizada correctamente.")
+            resp_excel = requests.get(url_descarga, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+            if resp_excel.status_code == 200:
+                xls_cargado = pd.ExcelFile(io.BytesIO(resp_excel.content))
+                df_medios = pd.read_excel(xls_cargado, sheet_name=0)
+                hoja_cliente = CLIENTES_CONFIG[cliente_nombre].get("hoja_excel", cliente_nombre)
+                if hoja_cliente in xls_cargado.sheet_names:
+                    df_feeds = pd.read_excel(xls_cargado, sheet_name=hoja_cliente)
+                logger("✅ Base de Medios sincronizada correctamente.")
     except Exception as e:
         logger(f"⚠️ No se pudo descargar la Base de Medios: {e}")
     return df_medios, df_feeds
@@ -533,9 +530,10 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
         logger(f"  ➜ Buscando en Google News...")
         for url_busqueda in lista_rss:
             try:
-                req = urllib.request.urlopen(urllib.request.Request(url_busqueda, headers={'User-Agent': 'Mozilla/5.0'}))
-                for it in BeautifulSoup(req.read(), "xml").find_all('item')[:30]: 
-                    items.append((it, 'rss_google'))
+                resp_rss = requests.get(url_busqueda, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                if resp_rss.status_code == 200:
+                    for it in BeautifulSoup(resp_rss.content, "xml").find_all('item')[:30]: 
+                        items.append((it, 'rss_google'))
             except: pass
 
     noticias_procesadas = []

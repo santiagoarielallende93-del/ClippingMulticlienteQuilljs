@@ -27,7 +27,8 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.9"
+APP_VERSION = "3.0"
+USAR_FILTRO_RELEVANCIA_IA = True  # Cambiar a False para desactivar el filtro de IA
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -53,6 +54,43 @@ def es_portal_extranjero(url, medio, texto=""):
         if kw in medio_norm or kw in url_norm or kw in texto_norm:
             return True
     return False
+
+# ====================================================================
+# FILTRO DE RELEVANCIA CON IA (GROQ)
+# ====================================================================
+def evaluar_relevancia_ia(titulo, texto, cliente, palabras_clave, logger=None):
+    if not USAR_FILTRO_RELEVANCIA_IA or not GROQ_API_KEY:
+        return True
+    try:
+        prompt = (
+            f"Sos un analista de prensa profesional. Evalúa si esta noticia es verdaderamente RELEVANTE para el cliente '{cliente}'.\n"
+            f"Palabras clave principales de interés: {', '.join(palabras_clave)}.\n"
+            f"Título de la noticia: {titulo}\n"
+            f"Contenido/Bajada: {texto[:600]}\n\n"
+            f"REGLA ESTRICTA: Responde ÚNICAMENTE con la palabra 'SI' si la noticia le interesa al cliente, o 'NO' si es irrelevante, fuera de contexto o ruido."
+        )
+        res = requests.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            headers={
+                'Authorization': f'Bearer {GROQ_API_KEY}',
+                'Content-Type': 'application/json'
+            },
+            json={
+                'model': 'openai/gpt-oss-20b',
+                'messages': [{'role': 'user', 'content': prompt}],
+                'temperature': 0.1,
+                'max_tokens': 10
+            },
+            timeout=4
+        )
+        if res.status_code == 200:
+            respuesta = res.json()['choices'][0]['message']['content'].strip().upper()
+            if 'NO' in respuesta and 'SI' not in respuesta:
+                return False
+    except Exception as e:
+        if logger:
+            logger(f"    ⚠️ Respaldo por timeout/error de IA: {e}")
+    return True
 
 # ====================================================================
 # AUDITORÍA DE REGISTRO
@@ -366,7 +404,6 @@ def obtener_fecha_metadata(page):
     except: pass
     return ""
 
-# GARANTIZA UN ÚNICO PÁRRAFO LIMPIO Y UNIFORME DE 12PX (OBS 1)
 def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec_id="", resumen_rss=""):
     secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
     
@@ -507,7 +544,6 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
 
         medio = item.source.text if hasattr(item, 'source') and item.source and item.source.text != "Manual" else urlparse(link_orig).netloc.replace("www.", "").split('.')[0].capitalize()
         
-        # DESCARTE DE PORTALES EXTRANJEROS (OBS 2)
         if origen != 'manual' and es_portal_extranjero(link_orig, medio, f"{titulo}"):
             logger(f"    🌎 EXCLUIDO por portal extranjero: {medio[:20]} ({link_orig[:30]}...)")
             continue
@@ -581,6 +617,12 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
                 continue
             if not contiene_palabra_clave(texto_eval, palabras_clave):
                 continue
+            
+            # FILTRO DE RELEVANCIA INTELIGENTE POR IA
+            if USAR_FILTRO_RELEVANCIA_IA:
+                if not evaluar_relevancia_ia(titulo, f"{bajada} {oracion}", cliente_nombre, palabras_clave, logger):
+                    logger(f"    🤖 EXCLUIDO por IA (Filtro Relevancia): {medio[:20]} - {titulo[:30]}...")
+                    continue
 
         alcance, tier, ad_value = buscar_metricas_medio(df_medios, page.url if 'page' in locals() and page else link_orig, medio)
         fecha_final = fecha_web if fecha_web else (fecha_rss if fecha_rss else datetime.datetime.now().strftime("%d/%m/%Y"))
@@ -1053,7 +1095,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 
             let texto_completo = textos_notas.join("\n").substring(0, 2500);
             
-            let prompt = `Redacta un resumen de los siguientes textos en un único párrafo fluido de máximo 2 oraciones.\n\nReglas estrictas obligatorias:\n1. NO menciones ningún sitio web, portal ni medio de comunicación.\n2. NO copies ni menciones títulos de noticias.\n3. Escribe un párrafo de lectura natural (no uses listas, ni viñetas, ni guiones).\n4. Responde ÚNICAMENTE con el texto del resumen final, sin introducciones ni comentarios extra.\n\nTextos a resumir:\n${texto_completo}`;
+            let prompt = `Redacta un resumen de los siguientes textos en un único párrafo fluido de máximo 2 oraciones.\n\nReglas strictly obligatorias:\n1. NO menciones ningún sitio web, portal ni medio de comunicación.\n2. NO copies ni menciones títulos de noticias.\n3. Escribe un párrafo de lectura natural (no uses listas, ni viñetas, ni guiones).\n4. Responde ÚNICAMENTE con el texto del resumen final, sin introducciones ni comentarios extra.\n\nTextos a resumir:\n${texto_completo}`;
 
             btnElement.innerHTML = '⏳ Generando...';
             btnElement.disabled = true;

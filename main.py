@@ -27,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.8"
+APP_VERSION = "2.9"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -37,6 +37,22 @@ CREDENCIALES = {
     "admin": "admin123",
     "usuario": "clipping2026"
 }
+
+DOMINIOS_EXTRANJEROS = ['.mx', '.pe', '.co', '.cl', '.es', '.uy', '.py', '.ve', '.ec', '.bo', '.cr', '.gt', '.hn', '.ni', '.pa', '.sv', '.do']
+PORTALES_EXTRANJEROS_KEYWORDS = ['profeco', 'peru retail', 'peru-retail', 'luz noticias', 'luznoticias', 'milenio', 'el universal mexico', 'el comercio peru', 'larepublica.pe']
+
+def es_portal_extranjero(url, medio, texto=""):
+    netloc = urlparse(url).netloc.lower()
+    for tld in DOMINIOS_EXTRANJEROS:
+        if netloc.endswith(tld) or f"{tld}/" in url.lower():
+            return True
+    medio_norm = remover_acentos((medio or "").lower())
+    url_norm = (url or "").lower()
+    texto_norm = remover_acentos((texto or "").lower())
+    for kw in PORTALES_EXTRANJEROS_KEYWORDS:
+        if kw in medio_norm or kw in url_norm or kw in texto_norm:
+            return True
+    return False
 
 # ====================================================================
 # AUDITORÍA DE REGISTRO
@@ -125,11 +141,11 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=Romina%20Ferreyra%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Mattia%20Iannone%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Whiskas%20when%3A7d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-            "keywords": ["Mars", "South", "Latam", "Mars South Latam", "Romina Ferreyra", "Mattia Iannone", "Whiskas", "Pedigree"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars"], "limite": 20 },
-            { "id": "mars_tema_2", "nombre": "Pet Nutrition", "nombre_largo": "Pet Nutrition", "img_local": "banners/mars_petnutrition.jpg", "img_url": "https://drive.google.com/file/d/1gayVCjqbhHsrPvm6XqO4jWFifqixT0gh/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Pet%20Nutrition%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pedigree", "Whiskas", "Mars Pet Nutrition", "Guadalupe Perez Torelli", "Mars Petcare"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars"], "limite": 20 },
-            { "id": "mars_tema_3", "nombre": "Snacking", "nombre_largo": "Snacking", "img_local": "banners/mars_snacking.jpg", "img_url": "https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Snacking%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mars", "Snacking", "Mars Snacking"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars"], "limite": 20 },
-            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Nestl%C3%A9%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Alican%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Eukanuba%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Purina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Metrive%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Sieger%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires"], "exclusiones": [], "limite": 20 },
-            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", ], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar"], "limite": 20 }
+            "keywords": ["Mars", "South", "Latam", "Mars South Latam", "Romina Ferreyra", "Mattia Iannone", "Whiskas", "Pedigree"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
+            { "id": "mars_tema_2", "nombre": "Pet Nutrition", "nombre_largo": "Pet Nutrition", "img_local": "banners/mars_petnutrition.jpg", "img_url": "https://drive.google.com/file/d/1gayVCjqbhHsrPvm6XqO4jWFifqixT0gh/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Pet%20Nutrition%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pedigree", "Whiskas", "Mars Pet Nutrition", "Guadalupe Perez Torelli", "Mars Petcare"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
+            { "id": "mars_tema_3", "nombre": "Snacking", "nombre_largo": "Snacking", "img_local": "banners/mars_snacking.jpg", "img_url": "https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Snacking%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mars", "Snacking", "Mars Snacking"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
+            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Nestl%C3%A9%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Alican%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Eukanuba%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Purina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Metrive%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Sieger%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires"], "exclusiones": ["peru retail", "peru-retail", "mexico", "chile", "colombia"], "limite": 20 },
+            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", ], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru"], "limite": 20 }
         ]
     },
     "BMS": {
@@ -350,6 +366,7 @@ def obtener_fecha_metadata(page):
     except: pass
     return ""
 
+# GARANTIZA UN ÚNICO PÁRRAFO LIMPIO Y UNIFORME DE 12PX (OBS 1)
 def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec_id="", resumen_rss=""):
     secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
     
@@ -365,47 +382,30 @@ def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec
         if len(tit_compact) > 10 and (tit_compact in meta_compact or meta_compact in tit_compact):
             resumen_meta_limpio = ""
 
-    html = ""
+    texto_final = ""
     
+    if resumen_meta_limpio and len(resumen_meta_limpio.strip()) > 15:
+        texto_final = resumen_meta_limpio.strip()
+    elif oracion and not oracion.startswith("[Nota inaccesible"):
+        texto_final = oracion.strip()
+    elif resumen_rss:
+        r_rss = limpiar_basura_periodistica(corregir_mojibake(resumen_rss))
+        o_rss = extraer_oracion_clave(re.sub(r'<[^>]+>', '', r_rss), palabras_clave, sec_id) if r_rss else ""
+        if o_rss:
+            texto_final = o_rss.strip()
+        elif r_rss and len(r_rss.strip()) > 15:
+            texto_final = re.sub(r'<[^>]+>', '', r_rss).strip()
+
     if sec_id in secciones_destacadas:
-        if resumen_meta_limpio:
-            html += f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{resumen_meta_limpio}</p>"
-        
-        oracion_final = ""
-        if oracion and not oracion.startswith("[Nota inaccesible"):
-            oracion_final = oracion
-        elif resumen_rss:
-            r_rss = limpiar_basura_periodistica(corregir_mojibake(resumen_rss))
-            o_rss = extraer_oracion_clave(re.sub(r'<[^>]+>', '', r_rss), palabras_clave, sec_id) if r_rss else ""
-            if o_rss: oracion_final = o_rss
-            
-        if oracion_final and tit_compact:
-            texto_oracion_limpio = re.sub(r'<[^>]+>', '', oracion_final).strip()
-            oracion_n = remover_acentos(texto_oracion_limpio.lower()).strip()
-            oracion_compact = re.sub(r'[^a-z0-9]', '', oracion_n)
-            if len(tit_compact) > 10 and (tit_compact in oracion_compact or oracion_compact in tit_compact):
-                oracion_final = ""
-                
-        if oracion_final:
-            texto_oracion_limpio = re.sub(r'<[^>]+>', '', oracion_final).strip()
-            if not resumen_meta_limpio or texto_oracion_limpio not in resumen_meta_limpio:
-                html += f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{oracion_final}</p>"
+        if texto_final:
+            return f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{texto_final}</p>"
         else:
-            html += f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #888888; font-style: italic; margin-top: 0; margin-bottom: 6px;'>[Mención no detectada automáticamente en el texto visible]</p>"
+            return f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #888888; font-style: italic; margin-top: 0; margin-bottom: 6px;'>[Mención no detectada automáticamente en el texto visible]</p>"
     else:
-        meta_tiene_kw = contiene_palabra_clave(resumen_meta_limpio, palabras_clave)
-        if resumen_meta_limpio and meta_tiene_kw:
-            html += f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{resumen_meta_limpio}</p>"
-        elif oracion:
-            if resumen_meta_limpio:
-                html += f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{resumen_meta_limpio}</p>"
-            html += f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{oracion}</p>"
-        elif resumen_meta_limpio:
-            html += f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{resumen_meta_limpio}</p>"
+        if texto_final:
+            return f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{texto_final}</p>"
         else:
-            html += "<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #888888; font-style: italic; margin-top: 0; margin-bottom: 6px;'>Sin resumen disponible.</p>"
-            
-    return html
+            return "<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #888888; font-style: italic; margin-top: 0; margin-bottom: 6px;'>Sin resumen disponible.</p>"
 
 def buscar_metricas_medio(df_medios, url, medio_nombre):
     alcance, tier, ad_value = "?", "?", "?"
@@ -507,6 +507,11 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
 
         medio = item.source.text if hasattr(item, 'source') and item.source and item.source.text != "Manual" else urlparse(link_orig).netloc.replace("www.", "").split('.')[0].capitalize()
         
+        # DESCARTE DE PORTALES EXTRANJEROS (OBS 2)
+        if origen != 'manual' and es_portal_extranjero(link_orig, medio, f"{titulo}"):
+            logger(f"    🌎 EXCLUIDO por portal extranjero: {medio[:20]} ({link_orig[:30]}...)")
+            continue
+
         origen_str = "Manual" if origen == 'manual' else "Online"
         logger(f"    🔎 Revisando [{origen_str}]: {link_orig[:40]}...")
         
@@ -568,6 +573,9 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
 
         if origen != 'manual':
             texto_eval = f"{titulo} {bajada} {oracion}"
+            if es_portal_extranjero(page.url if 'page' in locals() and page else link_orig, medio, texto_eval):
+                logger(f"    🌎 EXCLUIDO por portal extranjero: {medio[:20]}...")
+                continue
             if contiene_exclusion(texto_eval, exclusiones):
                 logger(f"    ⛔ EXCLUIDA por filtro de exclusiones: {medio[:20]} - {titulo[:30]}...")
                 continue
@@ -664,7 +672,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     return data_editor
 
 # ====================================================================
-# GENERADOR HTML QUILL.JS CON BARRA UNIFICADA Y SIN DEFORMACIÓN
+# GENERADOR HTML QUILL.JS
 # ====================================================================
 def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     banner_limpio = transformar_link_drive(banner_url)
@@ -838,7 +846,6 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         .ql-editor { font-family: 'Tahoma', sans-serif !important; padding: 4px 0 !important; line-height: 1.5 !important; }
         .ql-editor p { font-family: 'Tahoma', sans-serif !important; line-height: 1.5 !important; margin: 0 0 6px 0 !important; }
         
-        /* BARRA UNIFICADA DE QUILL Y EXCLUSIÓN DE BOTONES DE ACCIÓN (OBS 2) */
         .ql-toolbar.ql-snow { 
             border: none !important; 
             border-bottom: 1px solid #e2e8f0 !important; 

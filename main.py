@@ -27,9 +27,9 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "1.19"
-URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/refs/heads/main/version.txt"
-URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/refs/heads/main/main.py"
+APP_VERSION = "1.22"
+URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
+URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
 LINK_EXCEL_DRIVE = "https://docs.google.com/spreadsheets/d/1ZntitgSKrfkaL5rpG45ajwbr0yPVvfAp/edit?usp=sharing&ouid=110785507732300006515&rtpof=true&sd=true"
 
@@ -344,7 +344,6 @@ def obtener_fecha_metadata(page):
     except: pass
     return ""
 
-# PÁRRAFOS Y DESCRIPCIONES SECUNDARIAS EN TAHOMA 12PX
 def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec_id="", resumen_rss=""):
     secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
     
@@ -597,7 +596,6 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
         else:
             info_metricas = " -"
             
-        # PRIMERA LÍNEA COMPLETA HASTA EL TÍTULO DE LA NOTA EN TAHOMA 14PX
         html_indiv = f'''<p style="font-size: 14px; font-family: Tahoma, sans-serif; line-height: 1.5; margin-top: 0; margin-bottom: 4px; color: #000000;"><strong style="color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;">{noti['medio']}</strong>{tipo_html}<strong style="color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;">{noti['fecha']}</strong>{info_metricas} <a href="{noti['link']}" target="_blank" style="color: {color_tema}; text-decoration: none; font-size: 14px; font-weight: normal; font-family: Tahoma, sans-serif;">{noti['titulo']}</a></p>{bloque_texto}'''
         
         noti['html_bloque'] = html_indiv
@@ -795,6 +793,28 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             backdrop-filter: blur(4px);
         }
         
+        .sintesis-quill-box .ql-container.ql-snow {
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 12px !important;
+            background: #ffffff !important;
+            padding: 10px 14px !important;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
+        }
+        .sintesis-quill-box .ql-editor {
+            padding: 0 !important;
+            font-family: 'Tahoma', sans-serif !important;
+            font-size: 12px !important;
+            color: #333333 !important;
+            line-height: 1.5 !important;
+        }
+        .sintesis-quill-box .ql-editor p {
+            font-family: 'Tahoma', sans-serif !important;
+            font-size: 12px !important;
+            color: #333333 !important;
+            line-height: 1.5 !important;
+            margin: 0 !important;
+        }
+        
         .bloque-nota { border-bottom: 1px dashed #e2e8f0; padding: 12px 16px 16px; position: relative; transition: background 0.2s; }
         .bloque-nota:hover { background: #fafafa; }
         .bloque-tools { display: flex; gap: 4px; background: #f8fafc; padding: 6px 10px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
@@ -978,7 +998,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                 sHeader.style.fontStyle = 'italic';
                 sHeader.style.color = 'var(--tema_color)';
                 sHeader.style.fontSize = '15px';
-                sHeader.innerHTML = '✨ SÍNTESIS DEL DÍA · RESUMEN IA';
+                sHeader.innerHTML = 'SÍNTESIS DEL DÍA · RESUMEN IA';
                 sinDiv.appendChild(sHeader);
 
                 const sBody = document.createElement('div');
@@ -992,19 +1012,19 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                     headerSintesisDiv.style.justifyContent = 'space-between';
                     headerSintesisDiv.style.alignItems = 'center';
                     headerSintesisDiv.style.marginTop = '15px';
-                    headerSintesisDiv.style.marginBottom = '5px';
+                    headerSintesisDiv.style.marginBottom = '8px';
 
                     const pTitle = document.createElement('p');
                     pTitle.style.fontWeight = 'bold';
                     pTitle.style.color = 'var(--tema_color)';
                     pTitle.style.margin = '0';
-                    pTitle.style.fontSize = '12px';
+                    pTitle.style.fontSize = '14px';
                     pTitle.textContent = sec.nombre;
 
                     const btnRegenerar = document.createElement('button');
                     btnRegenerar.className = 'btn btn-icon';
                     btnRegenerar.style.borderRadius = '999px';
-                    btnRegenerar.style.padding = '5px 14px';
+                    btnRegenerar.style.padding = '4px 12px';
                     btnRegenerar.style.fontSize = '11px';
                     btnRegenerar.style.fontWeight = 'bold';
                     btnRegenerar.style.color = 'var(--tema_color)';
@@ -1018,6 +1038,9 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                     headerSintesisDiv.appendChild(btnRegenerar);
                     sBody.appendChild(headerSintesisDiv);
 
+                    const editorSintesisWrapper = document.createElement('div');
+                    editorSintesisWrapper.className = 'sintesis-quill-box';
+
                     const editorSintesisDiv = document.createElement('div');
                     const editorSintesisId = `quill-sintesis-${secIndexReal}`;
                     editorSintesisDiv.id = editorSintesisId;
@@ -1025,7 +1048,8 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                     let contenidoInic = sec.resumen_ia ? `<p style="font-size: 12px; font-family: Tahoma, sans-serif; color: #333333; line-height: 1.5;">${sec.resumen_ia}</p>` : `<p style="font-size: 12px; font-family: Tahoma, sans-serif; color: #666666;"><em>Resumen IA vacío. Tocá el botón para generar la redacción.</em></p>`;
                     editorSintesisDiv.innerHTML = contenidoInic;
 
-                    sBody.appendChild(editorSintesisDiv);
+                    editorSintesisWrapper.appendChild(editorSintesisDiv);
+                    sBody.appendChild(editorSintesisWrapper);
                 });
                 sinDiv.appendChild(sBody);
                 cont.appendChild(sinDiv);
@@ -1125,7 +1149,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                 if (el && !quillInstances[editorSintesisId]) {
                     const q = new Quill(`#${editorSintesisId}`, {
                         theme: 'snow',
-                        modules: { toolbar: [['bold', 'italic', 'underline'], [{ 'color': misColores }], ['clean']] }
+                        modules: { toolbar: false }
                     });
                     q.on('text-change', function() {
                         estado[secIndexReal].resumen_ia = q.root.innerHTML;
@@ -1236,7 +1260,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             render();
         }
 
-        // GENERACIÓN HTML FINAL CON SÍNTESIS Y FORMATO ADAPTADO PARA WORD
+        // GENERACIÓN HTML FINAL CON SÍNTESIS SIN LA ESTRELLA (OBS 2)
         function generarHtmlFinal(){
             let html = '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">';
             html += '<style>body, table, td, p, div, span, a { font-family: Tahoma, sans-serif !important; } p { margin: 0 0 6px 0 !important; line-height: 1.5 !important; } a { text-decoration: none; }</style>';
@@ -1247,7 +1271,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             
             const secsExc = estado.filter(s => s.incluir_en_sintesis && s.notas && s.notas.length > 0);
             if(secsExc.length > 0){ 
-                let html_sintesis = '<tr><td style="padding: 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 8px 0 8px 0;"><tr><td style="background: #f0f4f4; border-left: 4px solid __COLOR_CLIENTE__; padding: 18px 22px; border-radius: 4px;"><p style="margin: 0 0 12px 0 !important; font-family: Tahoma, sans-serif !important; font-size: 12px !important; font-weight: bold !important; color: __COLOR_CLIENTE__ !important; letter-spacing: 0.5px; text-transform: uppercase;">✨ SÍNTESIS DEL DÍA · RESUMEN IA</p>';
+                let html_sintesis = '<tr><td style="padding: 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 8px 0 8px 0;"><tr><td style="background: #f0f4f4; border-left: 4px solid __COLOR_CLIENTE__; padding: 18px 22px; border-radius: 4px;"><p style="margin: 0 0 12px 0 !important; font-family: Tahoma, sans-serif !important; font-size: 12px !important; font-weight: bold !important; color: __COLOR_CLIENTE__ !important; letter-spacing: 0.5px; text-transform: uppercase;">SÍNTESIS DEL DÍA · RESUMEN IA</p>';
 
                 secsExc.forEach(sec => {
                     html_sintesis += '<p style="margin: 10px 0 4px 0 !important; font-family: Tahoma, sans-serif !important; font-size: 12px !important; font-weight: bold !important; color: __COLOR_CLIENTE__ !important;">' + sec.nombre + '</p>';
@@ -1356,36 +1380,33 @@ def index():
             ui.button('Ingresar al Sistema', on_click=attempt_login).classes('w-full bg-[#006E74] text-white font-bold rounded-lg')
         return
 
+    # BANNER DE ACTUALIZACIÓN SIN SERIALIZACIÓN JSON DE FUNCIONES (OBS 1)
     def chequear_version():
         try:
-            resp = requests.get(URL_VERSION_GITHUB, timeout=2)
+            resp = requests.get(URL_VERSION_GITHUB, timeout=2, headers={'User-Agent': 'Mozilla/5.0'})
             if resp.status_code == 200:
                 v_git = resp.text.strip()
                 if v_git != APP_VERSION:
-                    def auto_actualizar():
+                    async def auto_actualizar():
                         try:
                             ui.notify('⏳ Descargando actualización desde GitHub...', type='info', position='top-right')
-                            r_code = requests.get(URL_MAIN_PYTHON_GITHUB, timeout=10)
+                            r_code = requests.get(URL_MAIN_PYTHON_GITHUB, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
                             if r_code.status_code == 200 and len(r_code.text) > 500:
                                 ruta_script = os.path.abspath(sys.argv[0])
                                 with open(ruta_script, "w", encoding="utf-8") as f:
                                     f.write(r_code.text)
                                 ui.notify('✅ ¡Actualización instalada correctamente! Reiniciando...', type='positive', position='top-right')
-                                time.sleep(1.5)
+                                await asyncio.sleep(1.5)
                                 os.execv(sys.executable, [sys.executable] + sys.argv)
                             else:
                                 ui.notify('❌ No se pudo descargar el código de actualización.', type='negative', position='top-right')
                         except Exception as err:
                             ui.notify(f'❌ Error al actualizar: {str(err)}', type='negative', position='top-right')
 
-                    ui.notify(
-                        f'🚀 ¡Nueva versión ({v_git}) disponible!',
-                        type='warning',
-                        position='top-right',
-                        timeout=15000,
-                        close_button='Cerrar',
-                        actions=[{'label': '⚡ Actualizar y Reiniciar', 'color': 'black', 'on_click': auto_actualizar}]
-                    )
+                    with ui.banner().classes('bg-amber-500 text-white font-bold p-2 justify-between items-center w-full z-50'):
+                        ui.label(f'🚀 ¡Nueva versión ({v_git}) disponible!')
+                        with ui.row().classes('items-center gap-2'):
+                            ui.button('⚡ Actualizar y Reiniciar', on_click=auto_actualizar).props('flat text-color=white bg-black')
         except: pass
 
     chequear_version()

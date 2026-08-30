@@ -27,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.1"
+APP_VERSION = "2.2"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -653,10 +653,12 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     return data_editor
 
 # ====================================================================
-# GENERADOR HTML QUILL.JS
+# GENERADOR HTML QUILL.JS CON AUTOGUARDADO EN LOCALSTORAGE (OBS 2)
 # ====================================================================
 def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     banner_limpio = transformar_link_drive(banner_url)
+    report_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     plantilla = r'''<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -865,6 +867,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             <div class="sidebar-text">
                 <h3 style="color:var(--tema_color); margin:0; font-size:15px;">Editor Dinámico</h3>
                 <div id="contador-total" style="color: #666; font-size: 11px;"></div>
+                <div id="indicador-guardado" style="color: #059669; font-size: 11px; margin-top: 4px; font-weight: 500;">💾 Guardado activo</div>
             </div>
         </div>
         <button class="btn btn-primary btn-side" onclick="descargarReporteFinal()">
@@ -893,7 +896,34 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         const BANNER_PRINCIPAL = __BANNER_PRINCIPAL_JSON__;
         const DATA_INICIAL = __DATA_INICIAL_JSON__;
         const GROQ_API_KEY = "__GROQ_API_KEY__";
+        const REPORT_ID = "__REPORT_ID__";
+        const STORAGE_KEY = 'clipping_draft_' + REPORT_ID;
+
         let estado = DATA_INICIAL;
+
+        // RESTAURAR BORRADOR DESDE LOCALSTORAGE SI EXISTE PARA ESTE REPORTE (OBS 2)
+        const savedDraft = localStorage.getItem(STORAGE_KEY);
+        if (savedDraft) {
+            try {
+                estado = JSON.parse(savedDraft);
+            } catch(e) {
+                console.error("Error al restaurar borrador guardado", e);
+            }
+        }
+
+        function guardarBorrador() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(estado));
+                const ind = document.getElementById('indicador-guardado');
+                if (ind) {
+                    const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                    ind.innerText = '💾 Guardado ' + hora;
+                }
+            } catch(e) {
+                console.error("Error al guardar borrador", e);
+            }
+        }
+
         let quillInstances = {};
         let dragSrcSec = null, dragSrcNota = null;
 
@@ -959,7 +989,8 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                 let resultado = data.choices[0].message.content.trim();
 
                 estado[secIdx].resumen_ia = resultado;
-                
+                guardarBorrador();
+
                 let qSin = quillInstances[`quill-sintesis-${secIdx}`];
                 if (qSin) {
                     qSin.root.innerHTML = `<p style="font-size: 12px; font-family: Tahoma, sans-serif; color: #333333; line-height: 1.5;">${resultado}</p>`;
@@ -1067,6 +1098,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                          const nota = estado[dragSrcSec].notas.splice(dragSrcNota, 1)[0];
                          estado[secIdx].notas.push(nota);
                          render();
+                         guardarBorrador();
                     }
                 });
 
@@ -1103,6 +1135,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                                 const movedNota = estado[dragSrcSec].notas.splice(dragSrcNota, 1)[0];
                                 estado[tgtSec].notas.splice(tgtNota, 0, movedNota);
                                 render();
+                                guardarBorrador();
                             }
                         });
 
@@ -1135,6 +1168,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             });
             initQuills();
             actualizarContadorTotal();
+            guardarBorrador();
         }
 
         function initQuills() {
@@ -1153,6 +1187,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                     });
                     q.on('text-change', function() {
                         estado[secIndexReal].resumen_ia = q.root.innerHTML;
+                        guardarBorrador();
                     });
                     quillInstances[editorSintesisId] = q;
                 }
@@ -1176,6 +1211,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 
                         q.on('text-change', function() {
                             estado[secIdx].notas[notaIdx].html_bloque = q.root.innerHTML;
+                            guardarBorrador();
                         });
                         quillInstances[editorDivId] = q;
                     }
@@ -1207,6 +1243,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                     let nuevoHtml = temp.innerHTML;
                     estado[secIdx].notas[notaIdx].html_bloque = nuevoHtml;
                     if (q) q.root.innerHTML = nuevoHtml;
+                    guardarBorrador();
                 }
             } else {
                 let pTag = temp.querySelector('p') || temp;
@@ -1227,6 +1264,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                     let nuevoHtml = temp.innerHTML;
                     estado[secIdx].notas[notaIdx].html_bloque = nuevoHtml;
                     if (q) q.root.innerHTML = nuevoHtml;
+                    guardarBorrador();
                 }
             }
         }
@@ -1238,18 +1276,21 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             estado[s].notas[n] = estado[s].notas[target];
             estado[s].notas[target] = temp;
             render();
+            guardarBorrador();
         }
 
         function duplicarNota(s, n) {
             const copia = JSON.parse(JSON.stringify(estado[s].notas[n]));
             estado[s].notas.splice(n + 1, 0, copia);
             render();
+            guardarBorrador();
         }
 
         function borrarNota(s, n) {
             if (confirm('¿Borrar esta nota?')) {
                 estado[s].notas.splice(n, 1);
                 render();
+                guardarBorrador();
             }
         }
 
@@ -1258,6 +1299,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             const nota = estado[s].notas.splice(n, 1)[0];
             estado[target].notas.push(nota);
             render();
+            guardarBorrador();
         }
 
         function generarHtmlFinal(){
@@ -1335,6 +1377,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     plantilla = plantilla.replace("__COLOR_CLIENTE__", color)
     plantilla = plantilla.replace("__BANNER_PRINCIPAL_JSON__", json.dumps(banner_limpio)).replace("__DATA_INICIAL_JSON__", json.dumps(sec_data))
     plantilla = plantilla.replace("__GROQ_API_KEY__", GROQ_API_KEY)
+    plantilla = plantilla.replace("__REPORT_ID__", report_id)
     return plantilla
 
 # ====================================================================
@@ -1357,7 +1400,12 @@ def index():
     </style>
     ''')
 
-    if not app.storage.user.get('authenticated', False):
+    # LIMPIEZA DE ALMACENAMIENTO PERMANENTE PREVIO
+    if app.storage.user.get('authenticated'):
+        app.storage.user['authenticated'] = False
+
+    # AUTENTICACIÓN POR PESTAÑA / SESIÓN TEMPORAL (OBS 1)
+    if not app.storage.tab.get('authenticated', False):
         with ui.card().classes('absolute-center items-center p-8 shadow-xl rounded-2xl w-96'):
             ui.label('🔒 Acceso Restringido').classes('text-2xl font-bold text-[#006E74] mb-2')
             ui.label('Ingresá tus credenciales').classes('text-gray-500 mb-6')
@@ -1369,8 +1417,8 @@ def index():
                 usr = user_input.value
                 pwd = pass_input.value
                 if usr in CREDENCIALES and CREDENCIALES[usr] == pwd:
-                    app.storage.user['authenticated'] = True
-                    app.storage.user['username'] = usr
+                    app.storage.tab['authenticated'] = True
+                    app.storage.tab['username'] = usr
                     registrar_actividad(usr, "Inicio de sesión", "Acceso exitoso al sistema")
                     ui.navigate.reload()
                 else:
@@ -1381,21 +1429,22 @@ def index():
 
     @ui.refreshable
     def header_title():
-        with ui.row().classes('items-center gap-3'):
-            ui.label(f'📰 Editor de: {state.cliente}').classes('text-xl font-bold tracking-wide')
-            ui.badge(f'v{APP_VERSION}', color='white', text_color='[#006E74]').classes('font-bold text-xs shadow-sm rounded-md px-2 py-1')
+        ui.label(f'📰 Editor de: {state.cliente}').classes('text-xl font-bold tracking-wide')
 
     with ui.header().classes('justify-between items-center bg-[#006E74] shadow-md px-6 py-3'):
         header_title()
         def logout():
-            registrar_actividad(app.storage.user['username'], "Cierre de sesión", "Salió del sistema")
+            registrar_actividad(app.storage.tab.get('username', 'usuario'), "Cierre de sesión", "Salió del sistema")
+            app.storage.tab['authenticated'] = False
             app.storage.user['authenticated'] = False
             ui.navigate.reload()
-        ui.button('🚪 Cerrar Sesión', on_click=logout).props('flat text-color=white').classes('font-bold')
+        with ui.row().classes('items-center gap-4'):
+            ui.label(f'v{APP_VERSION}').classes('text-white italic text-sm')
+            ui.button('🚪 Cerrar Sesión', on_click=logout).props('flat text-color=white').classes('font-bold')
 
     with ui.left_drawer(value=True).classes('bg-[#f8f9fa] border-r border-gray-200 p-6'):
         
-        if app.storage.user.get('username') == 'admin':
+        if app.storage.tab.get('username') == 'admin':
             with ui.card().classes('w-full p-4 mb-6 border border-amber-300 bg-amber-50 shadow-sm rounded-xl'):
                 ui.label('🛠️ MODO DIOS (Admin)').classes('text-xs font-bold text-amber-800 tracking-wider mb-2')
                 
@@ -1452,7 +1501,7 @@ def index():
         state.log_container.classes(remove='hidden')
         state.log_container.push("🚀 Iniciando motor de procesamiento...")
         
-        registrar_actividad(app.storage.user.get('username', 'usuario'), "Generó Reporte", f"Cliente: {state.cliente} | Manuales: {solo_manuales} | Banners: {solo_banners}")
+        registrar_actividad(app.storage.tab.get('username', 'usuario'), "Generó Reporte", f"Cliente: {state.cliente} | Manuales: {solo_manuales} | Banners: {solo_banners}")
         
         start_time = datetime.datetime.now()
         def update_chrono():
@@ -1523,7 +1572,6 @@ def index():
         
         with ui.column().classes('w-full max-w-5xl mx-auto p-8'):
             
-            # AVISO DE ACTUALIZACIÓN DENTRO DE MAIN_CONTENT
             try:
                 url_cb = f"{URL_VERSION_GITHUB}?t={int(time.time())}"
                 resp = requests.get(url_cb, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})

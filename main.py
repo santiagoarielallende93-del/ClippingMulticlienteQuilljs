@@ -27,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.7"
+APP_VERSION = "2.8"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -290,6 +290,12 @@ def contiene_palabra_clave(texto, palabras_clave):
     t_norm = remover_acentos(texto_limpio.lower())
     return any(re.search(r'\b' + re.escape(remover_acentos(k.lower())) + r'\b', t_norm, re.IGNORECASE) for k in palabras_clave)
 
+def contiene_exclusion(texto, exclusiones):
+    if not exclusiones: return False
+    texto_limpio = re.sub(r'(http[s]?://\S+|www\.\S+)', '', (texto or ""), flags=re.IGNORECASE)
+    t_norm = remover_acentos(texto_limpio.lower())
+    return any(re.search(r'\b' + re.escape(remover_acentos(ex.lower())) + r'\b', t_norm, re.IGNORECASE) for ex in exclusiones)
+
 _ABREVIATURAS = ['Sr.', 'Sra.', 'Dr.', 'Dra.', 'Lic.', 'Ing.', 'Prof.', 'Gral.', 'Av.', 'Cía.', 'EE.UU.', 'S.A.']
 def _proteger_abreviaturas(texto):
     for abr in _ABREVIATURAS: texto = re.sub(re.escape(abr), abr.replace('.', '∎'), texto, flags=re.IGNORECASE)
@@ -452,7 +458,7 @@ def sort_key_final(n, sec_id):
     else:
         return (es_grafica, medio_lower)
 
-def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales, notas_graficas_sec, palabras_clave, color_tema, limite_notas, logger, cliente_nombre, df_medios, solo_manuales=False):
+def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, solo_manuales=False):
     items = []
     secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
 
@@ -560,8 +566,13 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
         try: page.close()
         except: pass
 
-        if origen != 'manual' and not contiene_palabra_clave(f"{titulo} {bajada} {oracion}", palabras_clave):
-            continue
+        if origen != 'manual':
+            texto_eval = f"{titulo} {bajada} {oracion}"
+            if contiene_exclusion(texto_eval, exclusiones):
+                logger(f"    ⛔ EXCLUIDA por filtro de exclusiones: {medio[:20]} - {titulo[:30]}...")
+                continue
+            if not contiene_palabra_clave(texto_eval, palabras_clave):
+                continue
 
         alcance, tier, ad_value = buscar_metricas_medio(df_medios, page.url if 'page' in locals() and page else link_orig, medio)
         fecha_final = fecha_web if fecha_web else (fecha_rss if fecha_rss else datetime.datetime.now().strftime("%d/%m/%Y"))
@@ -633,7 +644,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
             notas_seccion = procesar_seccion(
                 context, sec['id'], sec['nombre'], rss_ajustado, 
                 links_manuales.get(sec['id'], []), notas_graficas.get(sec['id'], []),
-                sec['keywords'], color, sec['limite'], logger, cliente_nombre, df_medios, solo_manuales=solo_manuales
+                sec['keywords'], sec.get('exclusiones', []), color, sec['limite'], logger, cliente_nombre, df_medios, solo_manuales=solo_manuales
             )
 
             img_url = transformar_link_drive(sec.get('img_url', ''))
@@ -653,7 +664,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     return data_editor
 
 # ====================================================================
-# GENERADOR HTML QUILL.JS CON BARRA UNIFICADA Y TOOLTIP NATIVO DE LINKS
+# GENERADOR HTML QUILL.JS CON BARRA UNIFICADA Y SIN DEFORMACIÓN
 # ====================================================================
 def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     banner_limpio = transformar_link_drive(banner_url)
@@ -827,7 +838,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         .ql-editor { font-family: 'Tahoma', sans-serif !important; padding: 4px 0 !important; line-height: 1.5 !important; }
         .ql-editor p { font-family: 'Tahoma', sans-serif !important; line-height: 1.5 !important; margin: 0 0 6px 0 !important; }
         
-        /* BARRA UNIFICADA DE QUILL CON BOTONES INTEGRADOS */
+        /* BARRA UNIFICADA DE QUILL Y EXCLUSIÓN DE BOTONES DE ACCIÓN (OBS 2) */
         .ql-toolbar.ql-snow { 
             border: none !important; 
             border-bottom: 1px solid #e2e8f0 !important; 
@@ -845,7 +856,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             align-items: center !important;
             margin-right: 8px !important;
         }
-        .ql-toolbar.ql-snow button, .ql-toolbar.ql-snow .ql-picker-label {
+        .ql-toolbar.ql-snow button:not(.btn-tool), .ql-toolbar.ql-snow .ql-picker-label {
             display: inline-flex !important;
             align-items: center !important;
             justify-content: center !important;
@@ -853,6 +864,16 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             height: 26px !important;
             width: 26px !important;
             padding: 2px !important;
+        }
+        .btn-tool {
+            width: auto !important;
+            height: 26px !important;
+            padding: 2px 8px !important;
+            font-size: 11px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-sizing: border-box !important;
         }
         
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 100; }
@@ -1264,7 +1285,6 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                         });
                         quillInstances[editorDivId] = q;
 
-                        // INTEGRACIÓN DE HERRAMIENTAS Y TIRADOR EN LA BARRA DE QUILL (OBS 1 Y 2)
                         const toolbar = el.previousElementSibling;
                         if (toolbar && toolbar.classList.contains('ql-toolbar')) {
                             const dragHandle = document.createElement('span');
@@ -1275,7 +1295,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                             toolbar.insertBefore(dragHandle, toolbar.firstChild);
 
                             const actionGroup = document.createElement('div');
-                            actionGroup.style.cssText = 'margin-left: auto; display: inline-flex; align-items: center; gap: 4px;';
+                            actionGroup.style.cssText = 'margin-left: auto; display: inline-flex; align-items: center; gap: 6px;';
                             
                             let optionsHtml = `<option disabled selected>⇋ Mover a...</option>`;
                             estado.forEach((s, idx) => {
@@ -1285,9 +1305,9 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                             });
 
                             actionGroup.innerHTML = `
-                                <button class="btn btn-icon" onclick="duplicarNota(${secIdx}, ${notaIdx})" title="Duplicar nota" style="padding: 3px 8px; font-size: 11px;">⧉ Duplicar</button>
-                                <button class="btn btn-icon danger" onclick="borrarNota(${secIdx}, ${notaIdx})" title="Borrar nota" style="padding: 3px 8px; font-size: 11px;">🗑 Borrar</button>
-                                <select class="btn btn-icon" style="padding: 2px 6px; font-size: 11px; height: 26px;" onchange="moverASeccion(${secIdx}, ${notaIdx}, this.value)">
+                                <button class="btn btn-icon btn-tool" onclick="duplicarNota(${secIdx}, ${notaIdx})" title="Duplicar nota">⧉ Duplicar</button>
+                                <button class="btn btn-icon btn-tool danger" onclick="borrarNota(${secIdx}, ${notaIdx})" title="Borrar nota">🗑 Borrar</button>
+                                <select class="btn btn-icon btn-tool" style="height: 26px; font-size: 11px;" onchange="moverASeccion(${secIdx}, ${notaIdx}, this.value)">
                                     ${optionsHtml}
                                 </select>
                             `;
@@ -1400,7 +1420,6 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             document.getElementById('modal-preview').style.display = 'flex';
         }
 
-        // RENDERIZADO INMEDIATO
         render();
 
         if (restoredFromStorage) {

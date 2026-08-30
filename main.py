@@ -27,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.6"
+APP_VERSION = "2.7"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -653,7 +653,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     return data_editor
 
 # ====================================================================
-# GENERADOR HTML QUILL.JS CON HERRAMIENTA NATIVA DE HIPERVÍNCULOS
+# GENERADOR HTML QUILL.JS CON BARRA UNIFICADA Y TOOLTIP NATIVO DE LINKS
 # ====================================================================
 def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     banner_limpio = transformar_link_drive(banner_url)
@@ -819,8 +819,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         
         .bloque-nota { border-bottom: 1px dashed #e2e8f0; padding: 12px 16px 16px; position: relative; transition: background 0.2s; }
         .bloque-nota:hover { background: #fafafa; }
-        .bloque-tools { display: flex; gap: 4px; background: #f8fafc; padding: 6px 10px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
-        
+
         .drag-handle { cursor: grab; color: #94a3b8; font-size: 18px; padding: 0 6px; user-select: none; }
         .drag-handle:active { cursor: grabbing; }
 
@@ -828,12 +827,13 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         .ql-editor { font-family: 'Tahoma', sans-serif !important; padding: 4px 0 !important; line-height: 1.5 !important; }
         .ql-editor p { font-family: 'Tahoma', sans-serif !important; line-height: 1.5 !important; margin: 0 0 6px 0 !important; }
         
+        /* BARRA UNIFICADA DE QUILL CON BOTONES INTEGRADOS */
         .ql-toolbar.ql-snow { 
             border: none !important; 
             border-bottom: 1px solid #e2e8f0 !important; 
             background: #ffffff; 
-            border-radius: 6px; 
-            padding: 6px 10px !important; 
+            border-radius: 8px 8px 0 0; 
+            padding: 4px 10px !important; 
             margin-bottom: 6px;
             display: flex !important;
             align-items: center !important;
@@ -1205,27 +1205,11 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                             }
                         });
 
-                        const tools = document.createElement('div'); 
-                        tools.className = 'bloque-tools';
-                        tools.innerHTML = `
-                            <span class="drag-handle" title="Arrastrar y soltar">☰</span>
-                            <button class="btn btn-icon" onclick="moverNota(${secIdx}, ${notaIdx}, -1)">↑ Subir</button>
-                            <button class="btn btn-icon" onclick="moverNota(${secIdx}, ${notaIdx}, 1)">↓ Bajar</button>
-                            <button class="btn btn-icon" onclick="duplicarNota(${secIdx}, ${notaIdx})">⧉ Duplicar</button>
-                            <button class="btn btn-icon" onclick="editarLinkNota(${secIdx}, ${notaIdx})">🔗 Link</button>
-                            <button class="btn btn-icon danger" onclick="borrarNota(${secIdx}, ${notaIdx})">🗑 Borrar</button>
-                            <select class="btn btn-icon" onchange="moverASeccion(${secIdx}, ${notaIdx}, this.value)">
-                                <option disabled selected>⇋ Mover a...</option>
-                                ${estado.map((s, idx) => idx !== secIdx ? `<option value="${idx}">${s.nombre}</option>` : '').join('')}
-                            </select>
-                        `;
-
                         const editorContainer = document.createElement('div');
                         const editorDivId = `quill-${secIdx}-${notaIdx}`;
                         editorContainer.id = editorDivId;
                         editorContainer.innerHTML = nota.html_bloque;
                         
-                        bloque.appendChild(tools);
                         bloque.appendChild(editorContainer);
                         secDiv.appendChild(bloque);
                     });
@@ -1279,59 +1263,40 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                             guardarBorrador();
                         });
                         quillInstances[editorDivId] = q;
+
+                        // INTEGRACIÓN DE HERRAMIENTAS Y TIRADOR EN LA BARRA DE QUILL (OBS 1 Y 2)
+                        const toolbar = el.previousElementSibling;
+                        if (toolbar && toolbar.classList.contains('ql-toolbar')) {
+                            const dragHandle = document.createElement('span');
+                            dragHandle.className = 'drag-handle';
+                            dragHandle.title = 'Arrastrar y soltar';
+                            dragHandle.innerText = '☰';
+                            dragHandle.style.cssText = 'cursor: grab; font-size: 16px; margin-right: 8px; color: #64748b; user-select: none; align-self: center;';
+                            toolbar.insertBefore(dragHandle, toolbar.firstChild);
+
+                            const actionGroup = document.createElement('div');
+                            actionGroup.style.cssText = 'margin-left: auto; display: inline-flex; align-items: center; gap: 4px;';
+                            
+                            let optionsHtml = `<option disabled selected>⇋ Mover a...</option>`;
+                            estado.forEach((s, idx) => {
+                                if (idx !== secIdx) {
+                                    optionsHtml += `<option value="${idx}">${s.nombre}</option>`;
+                                }
+                            });
+
+                            actionGroup.innerHTML = `
+                                <button class="btn btn-icon" onclick="duplicarNota(${secIdx}, ${notaIdx})" title="Duplicar nota" style="padding: 3px 8px; font-size: 11px;">⧉ Duplicar</button>
+                                <button class="btn btn-icon danger" onclick="borrarNota(${secIdx}, ${notaIdx})" title="Borrar nota" style="padding: 3px 8px; font-size: 11px;">🗑 Borrar</button>
+                                <select class="btn btn-icon" style="padding: 2px 6px; font-size: 11px; height: 26px;" onchange="moverASeccion(${secIdx}, ${notaIdx}, this.value)">
+                                    ${optionsHtml}
+                                </select>
+                            `;
+
+                            toolbar.appendChild(actionGroup);
+                        }
                     }
                 });
             });
-        }
-
-        function editarLinkNota(secIdx, notaIdx) {
-            let q = quillInstances[`quill-${secIdx}-${notaIdx}`];
-            let currentHtml = q ? q.root.innerHTML : estado[secIdx].notas[notaIdx].html_bloque;
-
-            let temp = document.createElement('div');
-            temp.innerHTML = currentHtml;
-
-            let aTag = temp.querySelector('a');
-
-            if (aTag) {
-                let urlActual = aTag.getAttribute('href') || '';
-                let nuevaUrl = prompt('Ingresá la URL para hipervincular la nota:', urlActual);
-                if (nuevaUrl !== null && nuevaUrl.trim() !== '') {
-                    aTag.setAttribute('href', nuevaUrl.trim());
-                    aTag.setAttribute('target', '_blank');
-                    aTag.style.color = '__COLOR_CLIENTE__';
-                    aTag.style.textDecoration = 'none';
-                    aTag.style.fontWeight = 'normal';
-                    aTag.style.fontSize = '14px';
-                    aTag.style.fontFamily = 'Tahoma, sans-serif';
-
-                    let nuevoHtml = temp.innerHTML;
-                    estado[secIdx].notas[notaIdx].html_bloque = nuevoHtml;
-                    if (q) q.root.innerHTML = nuevoHtml;
-                    guardarBorrador();
-                }
-            } else {
-                let pTag = temp.querySelector('p') || temp;
-                let nuevaUrl = prompt('La nota no tiene link. Ingresá la URL para hipervincular el título:', 'https://');
-                if (nuevaUrl !== null && nuevaUrl.trim() !== '') {
-                    let textHtml = pTag.innerHTML;
-                    if (textHtml.includes('-')) {
-                        let parts = textHtml.split('-');
-                        let header = parts[0];
-                        let rest = parts.slice(1).join('-');
-                        let cleanRest = rest.replace(/<[^>]+>/g, '').trim() || 'Ver Nota';
-                        pTag.innerHTML = `${header}- <a href="${nuevaUrl.trim()}" target="_blank" style="color: __COLOR_CLIENTE__; text-decoration: none; font-size: 14px; font-weight: normal; font-family: Tahoma, sans-serif;">${cleanRest}</a>`;
-                    } else {
-                        let cleanText = pTag.innerText.trim() || 'Ver Nota';
-                        pTag.innerHTML = `<a href="${nuevaUrl.trim()}" target="_blank" style="color: __COLOR_CLIENTE__; text-decoration: none; font-size: 14px; font-weight: normal; font-family: Tahoma, sans-serif;">${cleanText}</a>`;
-                    }
-
-                    let nuevoHtml = temp.innerHTML;
-                    estado[secIdx].notas[notaIdx].html_bloque = nuevoHtml;
-                    if (q) q.root.innerHTML = nuevoHtml;
-                    guardarBorrador();
-                }
-            }
         }
 
         function moverNota(s, n, dir) {

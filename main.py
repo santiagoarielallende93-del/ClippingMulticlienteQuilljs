@@ -5,6 +5,7 @@ if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from nicegui import ui, app, run
+import urllib.request
 import urllib.parse
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
@@ -26,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "3.4"
+APP_VERSION = "3.5"
 USAR_FILTRO_RELEVANCIA_IA = True  # Cambiar a False para desactivar el filtro de IA
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
@@ -110,7 +111,10 @@ def evaluar_relevancia_ia(titulo, texto, cliente, palabras_clave, fuente="Portal
                 
             data = json.loads(content)
             if isinstance(data, dict) and "incluir" in data:
-                return bool(data["incluir"])
+                val = data.get("incluir")
+                if isinstance(val, str):
+                    return val.lower() == "true"
+                return bool(val)
     except Exception as e:
         if logger:
             logger(f"    ⚠️ Respaldo por timeout/error de IA: {e}")
@@ -531,11 +535,12 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
         logger(f"  ➜ Buscando en Google News...")
         for url_busqueda in lista_rss:
             try:
-                resp_rss = requests.get(url_busqueda, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-                if resp_rss.status_code == 200:
-                    for it in BeautifulSoup(resp_rss.content, "xml").find_all('item')[:30]: 
-                        items.append((it, 'rss_google'))
-            except: pass
+                # SE RESTAURA EL BUSCADOR ORIGINAL DE URLLIB PARA GOOGLE NEWS
+                req = urllib.request.urlopen(urllib.request.Request(url_busqueda, headers={'User-Agent': 'Mozilla/5.0'}))
+                for it in BeautifulSoup(req.read(), "xml").find_all('item')[:30]: 
+                    items.append((it, 'rss_google'))
+            except Exception as e: 
+                pass
 
     noticias_procesadas = []
 

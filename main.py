@@ -1260,7 +1260,6 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             render();
         }
 
-        // GENERACIÓN HTML FINAL CON SÍNTESIS SIN LA ESTRELLA (OBS 2)
         function generarHtmlFinal(){
             let html = '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">';
             html += '<style>body, table, td, p, div, span, a { font-family: Tahoma, sans-serif !important; } p { margin: 0 0 6px 0 !important; line-height: 1.5 !important; } a { text-decoration: none; }</style>';
@@ -1380,40 +1379,11 @@ def index():
             ui.button('Ingresar al Sistema', on_click=attempt_login).classes('w-full bg-[#006E74] text-white font-bold rounded-lg')
         return
 
-    # BANNER DE ACTUALIZACIÓN SIN SERIALIZACIÓN JSON DE FUNCIONES (OBS 1)
-    def chequear_version():
-        try:
-            resp = requests.get(URL_VERSION_GITHUB, timeout=2, headers={'User-Agent': 'Mozilla/5.0'})
-            if resp.status_code == 200:
-                v_git = resp.text.strip()
-                if v_git != APP_VERSION:
-                    async def auto_actualizar():
-                        try:
-                            ui.notify('⏳ Descargando actualización desde GitHub...', type='info', position='top-right')
-                            r_code = requests.get(URL_MAIN_PYTHON_GITHUB, timeout=10, headers={'User-Agent': 'Mozilla/5.0'})
-                            if r_code.status_code == 200 and len(r_code.text) > 500:
-                                ruta_script = os.path.abspath(sys.argv[0])
-                                with open(ruta_script, "w", encoding="utf-8") as f:
-                                    f.write(r_code.text)
-                                ui.notify('✅ ¡Actualización instalada correctamente! Reiniciando...', type='positive', position='top-right')
-                                await asyncio.sleep(1.5)
-                                os.execv(sys.executable, [sys.executable] + sys.argv)
-                            else:
-                                ui.notify('❌ No se pudo descargar el código de actualización.', type='negative', position='top-right')
-                        except Exception as err:
-                            ui.notify(f'❌ Error al actualizar: {str(err)}', type='negative', position='top-right')
-
-                    with ui.banner().classes('bg-amber-500 text-white font-bold p-2 justify-between items-center w-full z-50'):
-                        ui.label(f'🚀 ¡Nueva versión ({v_git}) disponible!')
-                        with ui.row().classes('items-center gap-2'):
-                            ui.button('⚡ Actualizar y Reiniciar', on_click=auto_actualizar).props('flat text-color=white bg-black')
-        except: pass
-
-    chequear_version()
-
     @ui.refreshable
     def header_title():
-        ui.label(f'📰 Editor de: {state.cliente}').classes('text-xl font-bold tracking-wide')
+        with ui.row().classes('items-center gap-3'):
+            ui.label(f'📰 Editor de: {state.cliente}').classes('text-xl font-bold tracking-wide')
+            ui.badge(f'v{APP_VERSION}', color='white', text_color='[#006E74]').classes('font-bold text-xs shadow-sm rounded-md px-2 py-1')
 
     with ui.header().classes('justify-between items-center bg-[#006E74] shadow-md px-6 py-3'):
         header_title()
@@ -1553,6 +1523,39 @@ def index():
         
         with ui.column().classes('w-full max-w-5xl mx-auto p-8'):
             
+            # AVISO DE ACTUALIZACIÓN DENTRO DE MAIN_CONTENT
+            try:
+                url_cb = f"{URL_VERSION_GITHUB}?t={int(time.time())}"
+                resp = requests.get(url_cb, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
+                if resp.status_code == 200:
+                    v_git = resp.text.strip().replace('"', '').replace("'", "")
+                    v_git_clean = re.sub(r'[^0-9.]', '', v_git)
+                    app_v_clean = re.sub(r'[^0-9.]', '', APP_VERSION)
+                    if v_git_clean and v_git_clean != app_v_clean:
+                        async def auto_actualizar():
+                            try:
+                                ui.notify('⏳ Descargando actualización desde GitHub...', type='info', position='top-right')
+                                url_code_cb = f"{URL_MAIN_PYTHON_GITHUB}?t={int(time.time())}"
+                                r_code = requests.get(url_code_cb, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
+                                if r_code.status_code == 200 and len(r_code.text) > 500:
+                                    ruta_script = os.path.abspath(sys.argv[0])
+                                    with open(ruta_script, "w", encoding="utf-8") as f:
+                                        f.write(r_code.text)
+                                    ui.notify('✅ ¡Actualización instalada correctamente! Reiniciando...', type='positive', position='top-right')
+                                    await asyncio.sleep(1.5)
+                                    os.execv(sys.executable, [sys.executable] + sys.argv)
+                                else:
+                                    ui.notify('❌ No se pudo descargar el código de actualización.', type='negative', position='top-right')
+                            except Exception as err:
+                                ui.notify(f'❌ Error al actualizar: {str(err)}', type='negative', position='top-right')
+
+                        with ui.card().classes('w-full bg-amber-500 text-white font-bold p-3 mb-4 shadow-md rounded-xl'):
+                            with ui.row().classes('items-center justify-between w-full px-2'):
+                                ui.label(f'🚀 ¡Nueva versión ({v_git}) disponible!')
+                                ui.button('⚡ Actualizar y Reiniciar', on_click=auto_actualizar).props('flat text-color=white bg-black').classes('rounded-lg')
+            except Exception as e:
+                print(f"Error en chequeo de versión: {e}")
+
             with ui.card().classes('w-full mb-6 p-4 border border-gray-200 shadow-sm rounded-xl bg-white'):
                 with ui.row().classes('items-center justify-between w-full'):
                     with ui.row().classes('items-center gap-3'):

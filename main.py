@@ -27,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.2"
+APP_VERSION = "2.4"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -653,7 +653,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     return data_editor
 
 # ====================================================================
-# GENERADOR HTML QUILL.JS CON AUTOGUARDADO EN LOCALSTORAGE (OBS 2)
+# GENERADOR HTML QUILL.JS CON AUTOGUARDADO EN LOCALSTORAGE E INDEXEDDB
 # ====================================================================
 def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     banner_limpio = transformar_link_drive(banner_url)
@@ -878,6 +878,10 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             <span class="btn-icon-symbol">👁️</span>
             <span class="sidebar-text">Vista Previa</span>
         </button>
+        <button class="btn btn-side" onclick="restablecerOriginal()" style="background:#fef2f2; color:#991b1b; margin-top: 12px;">
+            <span class="btn-icon-symbol">🔄</span>
+            <span class="sidebar-text">Restablecer Original</span>
+        </button>
     </div>
     
     <div class="contenedor-main">
@@ -897,30 +901,84 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         const DATA_INICIAL = __DATA_INICIAL_JSON__;
         const GROQ_API_KEY = "__GROQ_API_KEY__";
         const REPORT_ID = "__REPORT_ID__";
-        const STORAGE_KEY = 'clipping_draft_' + REPORT_ID;
+        const STORAGE_KEY = 'clipping_draft_' + (REPORT_ID || location.pathname.replace(/[^a-zA-Z0-9]/g, '_'));
 
         let estado = DATA_INICIAL;
 
-        // RESTAURAR BORRADOR DESDE LOCALSTORAGE SI EXISTE PARA ESTE REPORTE (OBS 2)
-        const savedDraft = localStorage.getItem(STORAGE_KEY);
-        if (savedDraft) {
+        // PERSISTENCIA EN INDEXEDDB PARA PROTOCOLO LOCAL FILE://
+        function saveToIndexedDB(key, val) {
             try {
-                estado = JSON.parse(savedDraft);
-            } catch(e) {
-                console.error("Error al restaurar borrador guardado", e);
+                let req = indexedDB.open("ClippingDB", 1);
+                req.onupgradeneeded = function(e) {
+                    let db = e.target.result;
+                    if (!db.objectStoreNames.contains("drafts")) {
+                        db.createObjectStore("drafts");
+                    }
+                };
+                req.onsuccess = function(e) {
+                    let db = e.target.result;
+                    let tx = db.transaction("drafts", "readwrite");
+                    tx.objectStore("drafts").put(val, key);
+                };
+            } catch(err) { console.error(err); }
+        }
+
+        function loadFromIndexedDB(key, callback) {
+            try {
+                let req = indexedDB.open("ClippingDB", 1);
+                req.onupgradeneeded = function(e) {
+                    let db = e.target.result;
+                    if (!db.objectStoreNames.contains("drafts")) {
+                        db.createObjectStore("drafts");
+                    }
+                };
+                req.onsuccess = function(e) {
+                    let db = e.target.result;
+                    let tx = db.transaction("drafts", "readonly");
+                    let getReq = tx.objectStore("drafts").get(key);
+                    getReq.onsuccess = function() {
+                        if (getReq.result) callback(getReq.result);
+                    };
+                };
+            } catch(err) { console.error(err); }
+        }
+
+        // INTENTO DE RESTAURACIÓN DESDE LOCALSTORAGE E INDEXEDDB
+        let restoredFromStorage = false;
+        try {
+            const savedLS = localStorage.getItem(STORAGE_KEY);
+            if (savedLS) {
+                estado = JSON.parse(savedLS);
+                restoredFromStorage = true;
             }
+        } catch(e) {
+            console.warn("localStorage no disponible, intentando IndexedDB", e);
         }
 
         function guardarBorrador() {
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(estado));
+            } catch(e) {}
+            saveToIndexedDB(STORAGE_KEY, estado);
+
+            const ind = document.getElementById('indicador-guardado');
+            if (ind) {
+                const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+                ind.innerText = '💾 Guardado ' + hora;
+            }
+        }
+
+        window.addEventListener('beforeunload', function() {
+            guardarBorrador();
+        });
+
+        function restablecerOriginal() {
+            if (confirm('¿Restablecer el reporte al estado original generado? Se descartarán todos los cambios hechos.')) {
+                try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+                estado = JSON.parse(JSON.stringify(DATA_INICIAL));
+                render();
                 const ind = document.getElementById('indicador-guardado');
-                if (ind) {
-                    const hora = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
-                    ind.innerText = '💾 Guardado ' + hora;
-                }
-            } catch(e) {
-                console.error("Error al guardar borrador", e);
+                if (ind) ind.innerText = '🔄 Restablecido al original';
             }
         }
 
@@ -1168,7 +1226,6 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             });
             initQuills();
             actualizarContadorTotal();
-            guardarBorrador();
         }
 
         function initQuills() {
@@ -1370,7 +1427,23 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             document.getElementById('modal-preview').style.display = 'flex';
         }
 
-        render();
+        // SI NO ESTABA EN LOCALSTORAGE, RECUPERA DE INDEXEDDB ASÍNTROCANAMENTE
+        if (!restoredFromStorage) {
+            loadFromIndexedDB(STORAGE_KEY, function(dbData) {
+                if (dbData && Array.isArray(dbData)) {
+                    estado = dbData;
+                    render();
+                    const ind = document.getElementById('indicador-guardado');
+                    if (ind) ind.innerText = '✨ Borrador restaurado';
+                } else {
+                    render();
+                }
+            });
+        } else {
+            render();
+            const ind = document.getElementById('indicador-guardado');
+            if (ind) ind.innerText = '✨ Borrador restaurado';
+        }
     </script>
 </body>
 </html>'''
@@ -1385,7 +1458,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 # ====================================================================
 
 @ui.page('/')
-def index():
+async def index():
     ui.add_head_html('''
     <style>
         body {
@@ -1400,11 +1473,8 @@ def index():
     </style>
     ''')
 
-    # LIMPIEZA DE ALMACENAMIENTO PERMANENTE PREVIO
-    if app.storage.user.get('authenticated'):
-        app.storage.user['authenticated'] = False
+    await ui.context.client.connected()
 
-    # AUTENTICACIÓN POR PESTAÑA / SESIÓN TEMPORAL (OBS 1)
     if not app.storage.tab.get('authenticated', False):
         with ui.card().classes('absolute-center items-center p-8 shadow-xl rounded-2xl w-96'):
             ui.label('🔒 Acceso Restringido').classes('text-2xl font-bold text-[#006E74] mb-2')
@@ -1436,7 +1506,6 @@ def index():
         def logout():
             registrar_actividad(app.storage.tab.get('username', 'usuario'), "Cierre de sesión", "Salió del sistema")
             app.storage.tab['authenticated'] = False
-            app.storage.user['authenticated'] = False
             ui.navigate.reload()
         with ui.row().classes('items-center gap-4'):
             ui.label(f'v{APP_VERSION}').classes('text-white italic text-sm')

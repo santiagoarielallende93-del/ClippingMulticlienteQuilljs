@@ -27,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.4"
+APP_VERSION = "2.5"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -653,7 +653,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     return data_editor
 
 # ====================================================================
-# GENERADOR HTML QUILL.JS CON AUTOGUARDADO EN LOCALSTORAGE E INDEXEDDB
+# GENERADOR HTML QUILL.JS CON AUTOGUARDADO E INICIALIZACIÓN DIRECTA
 # ====================================================================
 def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     banner_limpio = transformar_link_drive(banner_url)
@@ -905,7 +905,6 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 
         let estado = DATA_INICIAL;
 
-        // PERSISTENCIA EN INDEXEDDB PARA PROTOCOLO LOCAL FILE://
         function saveToIndexedDB(key, val) {
             try {
                 let req = indexedDB.open("ClippingDB", 1);
@@ -935,15 +934,24 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                 req.onsuccess = function(e) {
                     let db = e.target.result;
                     let tx = db.transaction("drafts", "readonly");
-                    let getReq = tx.objectStore("drafts").get(key);
+                    let store = tx.objectStore("drafts");
+                    let getReq = store.get(key);
                     getReq.onsuccess = function() {
-                        if (getReq.result) callback(getReq.result);
+                        callback(getReq.result || null);
+                    };
+                    getReq.onerror = function() {
+                        callback(null);
                     };
                 };
-            } catch(err) { console.error(err); }
+                req.onerror = function() {
+                    callback(null);
+                };
+            } catch(err) {
+                console.error(err);
+                callback(null);
+            }
         }
 
-        // INTENTO DE RESTAURACIÓN DESDE LOCALSTORAGE E INDEXEDDB
         let restoredFromStorage = false;
         try {
             const savedLS = localStorage.getItem(STORAGE_KEY);
@@ -952,7 +960,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                 restoredFromStorage = true;
             }
         } catch(e) {
-            console.warn("localStorage no disponible, intentando IndexedDB", e);
+            console.warn("localStorage no disponible", e);
         }
 
         function guardarBorrador() {
@@ -1427,22 +1435,21 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             document.getElementById('modal-preview').style.display = 'flex';
         }
 
-        // SI NO ESTABA EN LOCALSTORAGE, RECUPERA DE INDEXEDDB ASÍNTROCANAMENTE
-        if (!restoredFromStorage) {
+        // RENDERIZADO INMEDIATO Y BÚSQUEDA SECUNDARIA EN INDEXEDDB
+        render();
+
+        if (restoredFromStorage) {
+            const ind = document.getElementById('indicador-guardado');
+            if (ind) ind.innerText = '✨ Borrador restaurado';
+        } else {
             loadFromIndexedDB(STORAGE_KEY, function(dbData) {
                 if (dbData && Array.isArray(dbData)) {
                     estado = dbData;
                     render();
                     const ind = document.getElementById('indicador-guardado');
                     if (ind) ind.innerText = '✨ Borrador restaurado';
-                } else {
-                    render();
                 }
             });
-        } else {
-            render();
-            const ind = document.getElementById('indicador-guardado');
-            if (ind) ind.innerText = '✨ Borrador restaurado';
         }
     </script>
 </body>

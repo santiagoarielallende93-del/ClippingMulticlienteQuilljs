@@ -27,12 +27,19 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "3.0"
+APP_VERSION = "5.2"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
-GROQ_API_KEY = "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" 
-USAR_FILTRO_IA = False  # Poné False para desactivar el filtro de relevancia por IA y usar solo keywords
+GROQ_API_KEY = "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" 
+USAR_FILTRO_IA = True  # Desactivable globalmente si se requiere
 LINK_EXCEL_DRIVE = "https://docs.google.com/spreadsheets/d/1ZntitgSKrfkaL5rpG45ajwbr0yPVvfAp/edit?usp=sharing&ouid=110785507732300006515&rtpof=true&sd=true"
+
+# Cache global de gacetillas para renderizado en UI
+GACETILLAS_CACHE = None
+
+# Archivos de persistencia histórica antiduplicados
+HISTORIAL_JSON = "historial_notas.json"
+HISTORIAL_EXCEL = "historial_notas.xlsx"
 
 CREDENCIALES = {
     "admin": "admin123",
@@ -40,20 +47,240 @@ CREDENCIALES = {
 }
 
 DOMINIOS_EXTRANJEROS = ['.mx', '.pe', '.co', '.cl', '.es', '.uy', '.py', '.ve', '.ec', '.bo', '.cr', '.gt', '.hn', '.ni', '.pa', '.sv', '.do']
-PORTALES_EXTRANJEROS_KEYWORDS = ['profeco', 'peru retail', 'peru-retail', 'luz noticias', 'luznoticias', 'milenio', 'el universal mexico', 'el comercio peru', 'larepublica.pe']
+PORTALES_EXTRANJEROS_KEYWORDS = ['profeco', 'peru retail', 'peru-retail', 'luz noticias', 'luznoticias', 'milenio', 'el universal mexico', 'el comercio peru', 'larepublica.pe', 'infobae colombia', 'infobae mexico', 'infobae peru', 'infobae espana']
+
+# Segmentos de ruta URL para descartar ediciones internacionales de sitios globales (ej. Infobae Colombia)
+RUTAS_EXTRANJERAS_KEYWORDS = [
+    '/colombia/', '/mexico/', '/peru/', '/espana/', '/venezuela/',
+    '/ecuador/', '/chile/', '/bolivia/', '/uruguay/', '/paraguay/',
+    '/guatemala/', '/honduras/', '/nicaragua/', '/panama/', '/elsalvador/',
+    '/dominicana/', '/puertorico/', '/america/colombia/', '/america/mexico/',
+    '/america/peru/', '/america/espana/', '/america/venezuela/'
+]
+
+# Secciones directas/específicas que NUNCA deben pasar por IA (solo keywords directas)
+SECCIONES_DIRECTAS_KEYWORDS = ['exclusiva', 'exclusivas', 'competencia', 'mencion', 'menciones', 'corporativo', 'snacking', 'pet nutrition']
+
+def es_tier_1_o_2(tier_val):
+    """Verifica si un medio es clasificado como Tier 1 o Tier 2."""
+    try:
+        t_clean = str(tier_val).lower().replace('tier', '').strip()
+        if t_clean in ['1', '2', '1.0', '2.0']:
+            return True
+    except Exception:
+        pass
+    return False
+
+# ====================================================================
+# GESTIÓN DE HISTORIAL ANTIDUPLICADOS (EXCEL Y JSON)
+# ====================================================================
+def cargar_historial_global():
+    """
+    Carga todos los enlaces (URLs) de notas publicadas en entregas anteriores.
+    Busca tanto en 'historial_notas.xlsx' como en 'historial_notas.json'.
+    Esto garantiza que ninguna nota previamente procesada vuelva a repetirse.
+    """
+    links_historial = set()
+
+    # 1. Cargar desde Excel (historial_notas.xlsx)
+    if os.path.exists(HISTORIAL_EXCEL):
+        try:
+            xls = pd.ExcelFile(HISTORIAL_EXCEL)
+            for sheet_name in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet_name)
+                for col in df.columns:
+                    for val in df[col].dropna():
+                        v_str = str(val).strip().lower()
+                        if v_str.startswith("http"):
+                            links_historial.add(v_str)
+        except Exception as e:
+            print(f"⚠️ Error al leer historial Excel: {e}")
+
+    # 2. Cargar desde JSON respaldo (historial_notas.json)
+    if os.path.exists(HISTORIAL_JSON):
+        try:
+            with open(HISTORIAL_JSON, "r", encoding="utf-8") as f:
+                json_links = set(json.load(f))
+                links_historial.update(json_links)
+        except Exception as e:
+            print(f"⚠️ Error al leer historial JSON: {e}")
+
+    return links_historial
+
+def guardar_en_historial_excel(cliente_nombre, data_auditoria):
+    """
+    Guarda las notas confirmadas en el archivo 'historial_notas.xlsx'.
+    Estructura del Excel:
+      - Una pestaña (hoja) por cada Cliente.
+      - Columnas: Nombre de cada Sección.
+      - Filas: Enlaces redirigidos/limpios (URLs finales de los medios, NO news.google).
+    También actualiza 'historial_notas.json' con los links originales (news.google) para deduplicación rápida.
+    """
+    try:
+        sheets_dict = {}
+        if os.path.exists(HISTORIAL_EXCEL):
+            try:
+                xls = pd.ExcelFile(HISTORIAL_EXCEL)
+                for sheet in xls.sheet_names:
+                    sheets_dict[sheet] = pd.read_excel(xls, sheet_name=sheet)
+            except Exception:
+                sheets_dict = {}
+
+        sheet_name = cliente_nombre[:30]
+        
+        if sheet_name in sheets_dict:
+            df_client = sheets_dict[sheet_name]
+        else:
+            df_client = pd.DataFrame()
+
+        secciones_dict = {}
+        for col in df_client.columns:
+            secciones_dict[col] = [str(x).strip() for x in df_client[col].dropna() if str(x).strip()]
+
+        nuevos_links_json = []
+        for sec in data_auditoria:
+            sec_nombre = sec['nombre']
+            if sec_nombre not in secciones_dict:
+                secciones_dict[sec_nombre] = []
+            
+            for ev in sec.get('evaluaciones', []):
+                if ev.get('estado') == 'SUMADA' and ev.get('link'):
+                    link_orig_clean = str(ev['link']).strip()
+                    nuevos_links_json.append(link_orig_clean.lower())
+
+                    link_excel = str(ev.get('link_destino') or ev.get('link')).strip()
+                    if link_excel and link_excel not in secciones_dict[sec_nombre]:
+                        secciones_dict[sec_nombre].append(link_excel)
+                        nuevos_links_json.append(link_excel.lower())
+
+        max_len = max([len(v) for v in secciones_dict.values()], default=0)
+        df_actualizado = pd.DataFrame()
+        for col_name, links_list in secciones_dict.items():
+            padded = links_list + [None] * (max_len - len(links_list))
+            df_actualizado[col_name] = padded
+
+        sheets_dict[sheet_name] = df_actualizado
+
+        with pd.ExcelWriter(HISTORIAL_EXCEL, engine='openpyxl') as writer:
+            for s_name, df_sheet in sheets_dict.items():
+                df_sheet.to_excel(writer, sheet_name=s_name, index=False)
+
+        historial_json = cargar_historial_global()
+        historial_json.update(nuevos_links_json)
+        with open(HISTORIAL_JSON, "w", encoding="utf-8") as f:
+            json.dump(list(historial_json), f, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        print(f"⚠️ Error al guardar en historial Excel: {e}")
+
+def extraer_gacetilla_mas_reciente(df_gacetillas, cliente_nombre):
+    """
+    Busca en la pestaña 'Gacetillas 2026' la gacetilla/frase más reciente para el cliente seleccionado.
+    """
+    if df_gacetillas is None or df_gacetillas.empty:
+        return None
+    
+    try:
+        cols = {remover_acentos(str(c).lower().strip()): c for c in df_gacetillas.columns}
+        
+        col_cliente = next((orig for k, orig in cols.items() if 'cliente' in k), None)
+        col_fecha = next((orig for k, orig in cols.items() if 'fecha' in k or 'date' in k), None)
+        col_gacetilla = next((orig for k, orig in cols.items() if 'gacetilla' in k or 'titulo' in k or 'frase' in k or 'busqueda' in k or 'tema' in k), None)
+        
+        if col_cliente and col_gacetilla:
+            cli_norm = remover_acentos(str(cliente_nombre).lower().strip())
+            df_sub = df_gacetillas[df_gacetillas[col_cliente].astype(str).apply(lambda x: cli_norm in remover_acentos(x.lower()))].copy()
+            if not df_sub.empty:
+                if col_fecha:
+                    df_sub['fecha_dt'] = pd.to_datetime(df_sub[col_fecha], dayfirst=True, errors='coerce')
+                    df_sub = df_sub.sort_values('fecha_dt', ascending=False)
+                texto = str(df_sub[col_gacetilla].iloc[0]).strip()
+                if texto and texto.lower() != 'nan':
+                    return texto
+        
+        # Búsqueda si los nombres de los clientes son encabezados de columna
+        col_cli_direct = next((orig for k, orig in cols.items() if remover_acentos(str(cliente_nombre).lower()) in k or k in remover_acentos(str(cliente_nombre).lower())), None)
+        if col_cli_direct:
+            vals = [str(v).strip() for v in df_gacetillas[col_cli_direct].dropna().tolist() if str(v).strip() and str(v).lower() != 'nan']
+            if vals:
+                return vals[-1] # La última fila contiene la gacetilla más reciente
+    except Exception as e:
+        print(f"Error parseando gacetillas: {e}")
+        
+    return None
+
+def obtener_gacetilla_cliente_cached(cliente_nombre):
+    """Obtiene la gacetilla del cliente utilizando el cache global de gacetillas."""
+    global GACETILLAS_CACHE
+    if GACETILLAS_CACHE is None:
+        try:
+            match = re.search(r'/d/([a-zA-Z0-9-_]+)', LINK_EXCEL_DRIVE)
+            if match:
+                file_id = match.group(1)
+                url_descarga = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
+                req_excel = urllib.request.Request(url_descarga, headers={'User-Agent': 'Mozilla/5.0'})
+                resp_excel = urllib.request.urlopen(req_excel)
+                xls_cargado = pd.ExcelFile(io.BytesIO(resp_excel.read()))
+                hoja_gacetillas = next((s for s in xls_cargado.sheet_names if "gacetilla" in remover_acentos(s.lower())), None)
+                if hoja_gacetillas:
+                    GACETILLAS_CACHE = pd.read_excel(xls_cargado, sheet_name=hoja_gacetillas)
+        except Exception as e:
+            print(f"Error cargando gacetillas cache: {e}")
+
+    if GACETILLAS_CACHE is not None:
+        return extraer_gacetilla_mas_reciente(GACETILLAS_CACHE, cliente_nombre)
+    return None
+
+def es_seccion_general(sec_id, nombre_seccion):
+    """Determina si una sección es general/temática (usa IA) o directa (keywords directas, sin IA)."""
+    sec_id_lower = str(sec_id).lower()
+    nombre_lower = remover_acentos(str(nombre_seccion).lower())
+    for kw in SECCIONES_DIRECTAS_KEYWORDS:
+        if kw in sec_id_lower or kw in nombre_lower:
+            return False
+    return True
 
 def es_portal_extranjero(url, medio, texto=""):
-    netloc = urlparse(url).netloc.lower()
+    """
+    Verifica si una nota proviene de un portal extranjero o de la sección/edición
+    internacional de un sitio global (ej. infobae.com/colombia/).
+    """
+    url_lower = (url or "").lower()
+    netloc = urlparse(url_lower).netloc
+
     for tld in DOMINIOS_EXTRANJEROS:
-        if netloc.endswith(tld) or f"{tld}/" in url.lower():
+        if netloc.endswith(tld) or f"{tld}/" in url_lower:
             return True
+
+    for ruta in RUTAS_EXTRANJERAS_KEYWORDS:
+        if ruta in url_lower:
+            return True
+
     medio_norm = remover_acentos((medio or "").lower())
-    url_norm = (url or "").lower()
-    texto_norm = remover_acentos((texto or "").lower())
     for kw in PORTALES_EXTRANJEROS_KEYWORDS:
-        if kw in medio_norm or kw in url_norm or kw in texto_norm:
+        if kw in medio_norm or kw in url_lower:
             return True
+
     return False
+
+def es_fecha_en_rango(texto_fecha, timeframe):
+    """Verifica si la fecha del ítem de RSS está dentro del rango seleccionado (1d, 3d, 5d)."""
+    if not texto_fecha:
+        return True
+    try:
+        dt_item = email.utils.parsedate_to_datetime(texto_fecha)
+        dt_now = datetime.datetime.now(datetime.timezone.utc) if dt_item.tzinfo else datetime.datetime.now()
+        
+        dias = 1
+        if timeframe == "3d": dias = 3
+        elif timeframe in ["5d", "7d"]: dias = 5
+        
+        limite_segundos = (dias * 86400) + (4 * 3600)
+        diferencia = (dt_now - dt_item).total_seconds()
+        
+        return 0 <= diferencia <= limite_segundos
+    except Exception:
+        return True
 
 # ====================================================================
 # AUDITORÍA DE REGISTRO
@@ -199,7 +426,49 @@ CLIENTES_CONFIG = {
     }
 }
 
+# Se incluye mars_competencia en IDS_SINTESIS para que genere Síntesis pero sin mostrar métricas en sus notas
 IDS_SINTESIS = ["exclusivas", "mars_tema_1", "bms_tema_1", "arredo_tema_1", "arredo_tema_2", "amanco_tema_1", "booking_tema_1", "mars_competencia", "bms_tema_4", "arredo_tema_6", "amanco_tema_2", "booking_tema_2"]
+
+# ====================================================================
+# COMPONENTE DE CONSOLA / MONITOR DE PROCESOS INTERACTIVO
+# ====================================================================
+class MonitorConsola:
+    def __init__(self, parent_container):
+        self.container = parent_container
+        with self.container:
+            self.scroll = ui.scroll_area().classes('w-full h-96 bg-[#0f172a] text-slate-200 p-4 rounded-xl border border-slate-800 shadow-inner font-mono text-xs')
+            with self.scroll:
+                self.content = ui.column().classes('w-full gap-1 p-0')
+
+    def push(self, msg):
+        msg_str = str(msg)
+        msg_html = re.sub(
+            r'(https?://[^\s]+)',
+            r'<a href="\1" target="_blank" rel="noopener noreferrer" class="text-sky-400 underline hover:text-sky-300 font-semibold" onclick="event.stopPropagation();">\1</a>',
+            msg_str
+        )
+
+        if "✓ SUMADA" in msg_str:
+            line_html = f'<div class="text-emerald-400 font-semibold bg-emerald-950/40 px-2 py-1 rounded border-l-4 border-emerald-500">{msg_html}</div>'
+        elif "🔀 Feed Excel" in msg_str or "🔍 Búsqueda Extra" in msg_str or "📰 Gacetilla Excel" in msg_str:
+            line_html = f'<div class="text-sky-300 bg-sky-950/40 px-2 py-1 rounded border-l-4 border-sky-500 font-semibold">{msg_html}</div>'
+        elif "EXCLUIDA" in msg_str or "OMITIDA" in msg_str or "⛔" in msg_str or "❌" in msg_str or "🌎" in msg_str or "📅" in msg_str or "🔁" in msg_str or "📜" in msg_str:
+            line_html = f'<div class="text-rose-300 bg-rose-950/30 px-2 py-1 rounded border-l-4 border-rose-600/70">{msg_html}</div>'
+        elif "🔎 ANALIZANDO SECCIÓN" in msg_str:
+            line_html = f'<div class="text-amber-300 font-bold text-sm mt-3 mb-1 border-b border-amber-500/30 pb-1">{msg_html}</div>'
+        elif "🤖 IA" in msg_str:
+            line_html = f'<div class="text-purple-300 bg-purple-950/40 px-2 py-0.5 rounded border-l-2 border-purple-500">{msg_html}</div>'
+        elif "🔎 Revisando" in msg_str:
+            line_html = f'<div class="text-slate-300 px-2 py-0.5">{msg_html}</div>'
+        else:
+            line_html = f'<div class="text-slate-200 px-2 py-0.5">{msg_html}</div>'
+
+        with self.content:
+            ui.html(line_html)
+        self.scroll.scroll_to(percent=1.0)
+
+    def clear(self):
+        self.content.clear()
 
 # ====================================================================
 # CLASES Y ESTADO GLOBAL
@@ -221,8 +490,12 @@ class AppState:
         self.extra_searches = [{"q": "", "sec": ""}]
         self.links_manuales = {}
         self.graficas = {}
+        self.log_box = None
         self.log_container = None
         self.timer_label = None
+        self.status_chip = None
+        self.last_data_editor = None
+        self.last_data_auditoria = None
         self.init_secciones()
 
     def init_secciones(self):
@@ -239,12 +512,14 @@ class AppState:
 state = AppState()
 
 # ====================================================================
-# CARGA Y SINCRONIZACIÓN DE EXCEL (MÉTRICAS)
+# CARGA Y SINCRONIZACIÓN DE EXCEL (MÉTRICAS, FEEDS Y GACETILLAS)
 # ====================================================================
 def sincronizar_base_medios(cliente_nombre, logger):
-    logger("📁 Sincronizando Base de Medios desde Google Drive...")
+    global GACETILLAS_CACHE
+    logger("📁 Sincronizando Base de Medios, Feeds y Gacetillas desde Google Drive...")
     df_medios = None
     df_feeds = None
+    df_gacetillas = None
     try:
         match = re.search(r'/d/([a-zA-Z0-9-_]+)', LINK_EXCEL_DRIVE)
         if match:
@@ -259,11 +534,33 @@ def sincronizar_base_medios(cliente_nombre, logger):
             hoja_cliente = CLIENTES_CONFIG[cliente_nombre].get("hoja_excel", cliente_nombre)
             if hoja_cliente in xls_cargado.sheet_names:
                 df_feeds = pd.read_excel(xls_cargado, sheet_name=hoja_cliente)
+                logger(f"✅ Hoja del cliente '{hoja_cliente}' cargada correctamente.")
+            else:
+                logger(f"⚠️ No se encontró la hoja '{hoja_cliente}' en el Excel del Drive.")
+
+            # Cargar hoja "Gacetillas 2026"
+            hoja_gacetillas = next((s for s in xls_cargado.sheet_names if "gacetilla" in remover_acentos(s.lower())), None)
+            if hoja_gacetillas:
+                df_gacetillas = pd.read_excel(xls_cargado, sheet_name=hoja_gacetillas)
+                GACETILLAS_CACHE = df_gacetillas
+                logger(f"✅ Hoja de Gacetillas ('{hoja_gacetillas}') cargada correctamente.")
                 
             logger("✅ Base de Medios sincronizada correctamente.")
     except Exception as e:
         logger(f"⚠️ No se pudo descargar la Base de Medios: {e}")
-    return df_medios, df_feeds
+    return df_medios, df_feeds, df_gacetillas
+
+def extraer_todos_rss_excel(df_feeds):
+    """Extrae todos los enlaces RSS/URL presentes en la pestaña del cliente dentro del Excel."""
+    if df_feeds is None or df_feeds.empty:
+        return []
+    urls_encontradas = []
+    for col in df_feeds.columns:
+        for val in df_feeds[col].dropna():
+            v_str = str(val).strip()
+            if v_str.startswith("http"):
+                urls_encontradas.append(v_str)
+    return list(dict.fromkeys(urls_encontradas))
 
 # ====================================================================
 # MOTOR DE SCRAPING Y EXTRACCIÓN DE METADATA
@@ -314,9 +611,7 @@ def contiene_exclusion(texto, exclusiones):
     return any(re.search(r'\b' + re.escape(remover_acentos(ex.lower())) + r'\b', t_norm, re.IGNORECASE) for ex in exclusiones)
 
 def evaluar_relevancia_ia(texto, cliente_nombre, nombre_seccion, palabras_clave, exclusiones, logger=None):
-    """Confirma con IA (Groq) si una nota es realmente relevante para el cliente/tema,
-    mas alla del match literal de keywords. Si la IA falla o tarda, NO bloquea la nota
-    (devuelve True por defecto) para no romper el flujo normal."""
+    """Confirma con IA (Groq) si una nota de SECCIÓN GENERAL es relevante para el cliente/tema y devuelve el motivo si la excluye."""
     try:
         kws = ", ".join(palabras_clave) if palabras_clave else "sin palabras clave específicas"
         excl = ", ".join(exclusiones) if exclusiones else "ninguna"
@@ -324,9 +619,10 @@ def evaluar_relevancia_ia(texto, cliente_nombre, nombre_seccion, palabras_clave,
                    f'Palabras clave de interés de esta sección: {kws}.\n'
                    f'Temas que NO le interesan al cliente aunque compartan alguna palabra: {excl}.\n'
                    f'Esta nota ya contiene alguna palabra clave. Confirmá si el TEMA general de la nota '
-                   f'realmente se relaciona con el interés del cliente en esta sección (no que la palabra '
-                   f'aparezca de forma incidental o en otro contexto). Ante la duda, respondé SI.\n\n'
-                   f'Texto: {texto[:1200]}\n\nRespondé UNICAMENTE con SI o NO, sin tilde, sin explicaciones.')
+                   f'realmente se relaciona con el interés del cliente en esta sección.\n\n'
+                   f'Si es RELEVANTE respondé exactamente: SI\n'
+                   f'Si NO es relevante respondé exactamente: NO: [motivo breve de 1 frase del por qué no aplica al cliente]\n\n'
+                   f'Texto: {texto[:1200]}')
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
@@ -337,11 +633,15 @@ def evaluar_relevancia_ia(texto, cliente_nombre, nombre_seccion, palabras_clave,
         resp.raise_for_status()
         resultado_crudo = resp.json()["choices"][0]["message"]["content"].strip()
         if logger: logger(f"    🤖 IA respondió: '{resultado_crudo}'")
-        resultado = remover_acentos(resultado_crudo.upper())
-        return "NO" not in resultado.split()
+        
+        if resultado_crudo.upper().startswith("NO"):
+            partes = resultado_crudo.split(":", 1)
+            motivo = partes[1].strip() if len(partes) > 1 else "Tema no alineado al contexto general de la sección."
+            return False, motivo
+        return True, "Relevante"
     except Exception as e:
         if logger: logger(f"    ⚠️ Filtro IA no disponible ({e}), se conserva la nota por defecto.")
-        return True
+        return True, "Filtro IA no disponible"
 
 _ABREVIATURAS = ['Sr.', 'Sra.', 'Dr.', 'Dra.', 'Lic.', 'Ing.', 'Prof.', 'Gral.', 'Av.', 'Cía.', 'EE.UU.', 'S.A.']
 def _proteger_abreviaturas(texto):
@@ -397,7 +697,6 @@ def obtener_fecha_metadata(page):
     except: pass
     return ""
 
-# GARANTIZA UN ÚNICO PÁRRAFO LIMPIO Y UNIFORME DE 12PX (OBS 1)
 def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec_id="", resumen_rss=""):
     secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
     
@@ -429,14 +728,14 @@ def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec
 
     if sec_id in secciones_destacadas:
         if texto_final:
-            return f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{texto_final}</p>"
+            return f"<p>{texto_final}</p>"
         else:
-            return f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #888888; font-style: italic; margin-top: 0; margin-bottom: 6px;'>[Mención no detectada automáticamente en el texto visible]</p>"
+            return f"<p style='color: #888888; font-style: italic;'>[Mención no detectada automáticamente en el texto visible]</p>"
     else:
         if texto_final:
-            return f"<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #000000; margin-top: 0; margin-bottom: 6px;'>{texto_final}</p>"
+            return f"<p>{texto_final}</p>"
         else:
-            return "<p style='font-size: 12px; font-family: Tahoma, sans-serif; line-height: 1.5; color: #888888; font-style: italic; margin-top: 0; margin-bottom: 6px;'>Sin resumen disponible.</p>"
+            return "<p style='color: #888888; font-style: italic;'>Sin resumen disponible.</p>"
 
 def buscar_metricas_medio(df_medios, url, medio_nombre):
     alcance, tier, ad_value = "?", "?", "?"
@@ -460,7 +759,8 @@ def sort_key_final(n, sec_id):
     es_grafica = 0 if n['tipo_medio'] == 'Gráfica' else 1
     medio_lower = str(n['medio']).lower()
     
-    if sec_id in IDS_SINTESIS:
+    # mars_competencia NO ordena por métricas, se ordena alfabéticamente
+    if sec_id in IDS_SINTESIS and sec_id != 'mars_competencia':
         redes = ['instagram', 'facebook', 'threads', 'x.com', 'twitter', 'tiktok', 'linkedin']
         is_social = any(sm in medio_lower for sm in redes)
         
@@ -489,23 +789,21 @@ def sort_key_final(n, sec_id):
     else:
         return (es_grafica, medio_lower)
 
-def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, solo_manuales=False):
+def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, historial_previo, solo_manuales=False):
     items = []
+    evaluaciones_auditoria = []
     secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
 
+    requiere_ia = USAR_FILTRO_IA and es_seccion_general(sec_id, nombre_seccion)
+    
     if links_manuales:
         logger(f"  ➜ Procesando {len(links_manuales)} link(s) manuales...")
         for url_manual in reversed(links_manuales):
-            items.append((ObjetoManual(url_manual, "Nota Manual", ""), 'manual'))
+            items.append((ObjetoManual(url_manual, "Nota Manual", ""), 'Manual'))
 
-    if lista_rss and not solo_manuales:
-        logger(f"  ➜ Buscando en Google News...")
-        for url_busqueda in lista_rss:
-            try:
-                req = urllib.request.urlopen(urllib.request.Request(url_busqueda, headers={'User-Agent': 'Mozilla/5.0'}))
-                for it in BeautifulSoup(req.read(), "xml").find_all('item')[:30]: 
-                    items.append((it, 'rss_google'))
-            except: pass
+    if items_rss_preasignados and not solo_manuales:
+        for it_obj, origen_tipo in items_rss_preasignados:
+            items.append((it_obj, origen_tipo))
 
     noticias_procesadas = []
 
@@ -514,44 +812,156 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
         fecha_format = datetime.datetime.strptime(ng['fecha'], "%Y-%m-%d").strftime("%d/%m/%Y") if ng.get('fecha') else datetime.datetime.now().strftime("%d/%m/%Y")
         alcance, tier, ad_value = buscar_metricas_medio(df_medios, ng['link'], m_limpio)
 
-        noticias_procesadas.append({
+        bloque_ng = {
             "medio": m_limpio, "tipo_medio": "Gráfica", "fecha": fecha_format,
             "alcance": alcance, "tier": tier, "ad_value": ad_value, "titulo": ng['titulo'], "link": ng['link'],
             "bajada_real": ng['bajada'], "oracion_clave": ng['bajada'], "origen": "grafica"
+        }
+
+        link_norm = str(ng['link']).strip().lower()
+
+        # VERIFICACIÓN EN HISTORIAL PREVIO (GRÁFICA)
+        if link_norm and link_norm in historial_previo:
+            logger(f"    📜 EXCLUIDA [Gráfica] por historial anterior: {m_limpio[:20]} - {ng['titulo'][:30]}...")
+            if es_tier_1_o_2(tier):
+                evaluaciones_auditoria.append({
+                    "medio": m_limpio, "titulo": ng['titulo'], "link": ng['link'],
+                    "estado": "EXCLUIDA_HISTORIAL", "motivo": "Nota ya publicada en un clipping de días anteriores", "es_ia": False,
+                    "origen_fuente": "Gráfica", "bloque_data": bloque_ng
+                })
+            continue
+
+        if link_norm and link_norm in links_sumados_global:
+            logger(f"    🔁 EXCLUIDA [Gráfica] por nota duplicada: {m_limpio[:20]} - {ng['titulo'][:30]}...")
+            if es_tier_1_o_2(tier):
+                evaluaciones_auditoria.append({
+                    "medio": m_limpio, "titulo": ng['titulo'], "link": ng['link'],
+                    "estado": "EXCLUIDA_DUPLICADA", "motivo": "Nota ya ingresada en otra sección del reporte actual", "es_ia": False,
+                    "origen_fuente": "Gráfica", "bloque_data": bloque_ng
+                })
+            continue
+
+        noticias_procesadas.append(bloque_ng)
+        if link_norm: links_sumados_global.add(link_norm)
+
+        evaluaciones_auditoria.append({
+            "medio": m_limpio, "titulo": ng['titulo'], "link": ng['link'],
+            "estado": "SUMADA", "motivo": "Nota Gráfica ingresada manualmente", "es_ia": False,
+            "origen_fuente": "Gráfica", "bloque_data": bloque_ng
         })
         logger(f"    ✓ SUMADA [Gráfica]: {m_limpio[:20]} - {ng['titulo'][:30]}...")
 
     organicas_ok = 0
 
     for item, origen in items:
-        if origen != 'manual' and organicas_ok >= limite_notas:
-            continue
+        # CORTE DE SEGURIDAD: SI LLEGA A 10 NOTAS APROBADAS, SE INTERRUMPE EL BUCLE
+        if origen != 'Manual' and organicas_ok >= 10:
+            logger(f"    ⏹️ ¡Límite de 10 notas alcanzado! Se interrumpe la búsqueda en esta sección.")
+            break
 
         link_orig = item.link.text
+        link_norm = link_orig.strip().lower()
         titulo_bruto = item.title.text if item.title else "Sin Título"
-        fecha_rss = formatear_fecha(item.pubDate.text if hasattr(item, 'pubDate') and item.pubDate else "")
+        desc_rss = item.description.text if hasattr(item, 'description') and item.description else ""
+        fecha_rss_raw = item.pubDate.text if hasattr(item, 'pubDate') and item.pubDate else ""
+        fecha_rss = formatear_fecha(fecha_rss_raw)
 
-        if origen != 'manual':
+        if origen != 'Manual':
             titulo = re.sub(r'\s+[-|]\s+[^-|]+$', '', titulo_bruto).strip()
         else:
             titulo = titulo_bruto
 
         medio = item.source.text if hasattr(item, 'source') and item.source and item.source.text != "Manual" else urlparse(link_orig).netloc.replace("www.", "").split('.')[0].capitalize()
-        
-        # DESCARTE DE PORTALES EXTRANJEROS (OBS 2)
-        if origen != 'manual' and es_portal_extranjero(link_orig, medio, f"{titulo}"):
-            logger(f"    🌎 EXCLUIDO por portal extranjero: {medio[:20]} ({link_orig[:30]}...)")
+
+        bloque_pre = {
+            "medio": limpiar_nombre_medio(medio), "tipo_medio": "Online", "fecha": fecha_rss,
+            "alcance": "?", "tier": "?", "ad_value": "?", "titulo": titulo, "link": link_orig,
+            "bajada_real": desc_rss, "oracion_clave": desc_rss, "resumen_rss": desc_rss, "origen": origen
+        }
+
+        # VERIFICACIÓN EN HISTORIAL PREVIO (ONLINE)
+        if link_norm and link_norm in historial_previo:
+            logger(f"    📜 EXCLUIDA por historial anterior: {medio[:20]} - {titulo[:30]}...")
+            _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
+            if es_tier_1_o_2(tier_test):
+                evaluaciones_auditoria.append({
+                    "medio": medio, "titulo": titulo, "link": link_orig,
+                    "estado": "EXCLUIDA_HISTORIAL", "motivo": "Nota ya publicada en un clipping de días anteriores", "es_ia": False,
+                    "origen_fuente": origen, "bloque_data": bloque_pre
+                })
             continue
 
-        origen_str = "Manual" if origen == 'manual' else "Online"
-        logger(f"    🔎 Revisando [{origen_str}]: {link_orig[:40]}...")
+        # VERIFICACIÓN DE NOTA DUPLICADA (MISMO REPORTE)
+        if link_norm and link_norm in links_sumados_global:
+            logger(f"    🔁 EXCLUIDA por nota duplicada: {medio[:20]} - {titulo[:30]}...")
+            _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
+            if es_tier_1_o_2(tier_test):
+                evaluaciones_auditoria.append({
+                    "medio": medio, "titulo": titulo, "link": link_orig,
+                    "estado": "EXCLUIDA_DUPLICADA", "motivo": "La nota ya fue incluida en otra sección del reporte actual", "es_ia": False,
+                    "origen_fuente": origen, "bloque_data": bloque_pre
+                })
+            continue
+
+        # VERIFICACIÓN DE RANGO TEMPORAL EN FEEDS
+        if origen != 'Manual' and not es_fecha_en_rango(fecha_rss_raw, timeframe_google):
+            logger(f"    📅 EXCLUIDA por antigüedad (> {timeframe_google}): {medio[:20]} - {titulo[:30]}...")
+            _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
+            if es_tier_1_o_2(tier_test):
+                evaluaciones_auditoria.append({
+                    "medio": medio, "titulo": titulo, "link": link_orig,
+                    "estado": "EXCLUIDA_FECHA", "motivo": f"Excede el rango de tiempo seleccionado ({timeframe_google})", "es_ia": False,
+                    "origen_fuente": origen, "bloque_data": bloque_pre
+                })
+            continue
+
+        # PRE-FILTRO ULTRA RÁPIDO
+        if origen != 'Manual':
+            texto_pre = f"{titulo} {desc_rss}"
+            _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
+            es_top_tier = es_tier_1_o_2(tier_test)
+
+            if es_portal_extranjero(link_orig, medio, texto_pre):
+                logger(f"    🌎 EXCLUIDA por portal extranjero: {medio[:20]} ({link_orig})")
+                if es_top_tier:
+                    evaluaciones_auditoria.append({
+                        "medio": medio, "titulo": titulo, "link": link_orig,
+                        "estado": "EXCLUIDA_EXTRANJERO", "motivo": "Portal o dominio identificado como extranjero", "es_ia": False,
+                        "origen_fuente": origen, "bloque_data": bloque_pre
+                    })
+                continue
+
+            if contiene_exclusion(texto_pre, exclusiones):
+                logger(f"    ⛔ EXCLUIDA por filtro de exclusiones: {medio[:20]} - {titulo[:30]}...")
+                if es_top_tier:
+                    evaluaciones_auditoria.append({
+                        "medio": medio, "titulo": titulo, "link": link_orig,
+                        "estado": "EXCLUIDA_EXCLUSION", "motivo": "Contiene términos en lista de exclusión", "es_ia": False,
+                        "origen_fuente": origen, "bloque_data": bloque_pre
+                    })
+                continue
+
+            if not contiene_palabra_clave(texto_pre, palabras_clave):
+                logger(f"    🔍 EXCLUIDA por no coincidir palabras clave: {medio[:20]} - {titulo[:30]}...")
+                if es_top_tier:
+                    evaluaciones_auditoria.append({
+                        "medio": medio, "titulo": titulo, "link": link_orig,
+                        "estado": "EXCLUIDA_KEYWORD", "motivo": "Sin coincidencias de palabras clave", "es_ia": False,
+                        "origen_fuente": origen, "bloque_data": bloque_pre
+                    })
+                continue
+
+        origen_str = origen
+        logger(f"    🔎 Revisando [{origen_str}]: {link_orig}")
         
         page = context.new_page()
-        bajada, oracion, fecha_web = "", "", ""
+        bajada, oracion, fecha_web, link_destino = "", "", "", link_orig
         
         try:
             page.goto(link_orig, timeout=15000, wait_until="domcontentloaded")
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(1200)
+            if page.url:
+                link_destino = page.url  # URL final redirigida para el Excel
             
             try:
                 page.evaluate('''
@@ -589,11 +999,19 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
                                 oracion = extraer_oracion_clave(t_cand, palabras_clave, sec_id)
                                 if oracion: break
                                 
-                if not oracion and origen in ['manual', 'nicho']: 
+                if not oracion and origen in ['Manual', 'nicho']: 
                     oracion = extraer_oracion_clave(bajada, palabras_clave, sec_id)
                 
         except Exception as e:
-            if origen != 'manual': 
+            if origen != 'Manual': 
+                logger(f"    ❌ EXCLUIDA por error al acceder a la web: {medio[:20]} - {titulo[:30]}...")
+                _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
+                if es_tier_1_o_2(tier_test):
+                    evaluaciones_auditoria.append({
+                        "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
+                        "estado": "EXCLUIDA_ERROR", "motivo": f"Inaccesible o error web: {str(e)}", "es_ia": False,
+                        "origen_fuente": origen, "bloque_data": bloque_pre
+                    })
                 try: page.close() 
                 except: pass
                 continue
@@ -602,35 +1020,77 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
         try: page.close()
         except: pass
 
-        if origen != 'manual':
-            texto_eval = f"{titulo} {bajada} {oracion}"
-            if es_portal_extranjero(page.url if 'page' in locals() and page else link_orig, medio, texto_eval):
-                logger(f"    🌎 EXCLUIDO por portal extranjero: {medio[:20]}...")
-                continue
-            if contiene_exclusion(texto_eval, exclusiones):
-                logger(f"    ⛔ EXCLUIDA por filtro de exclusiones: {medio[:20]} - {titulo[:30]}...")
-                continue
-            if not contiene_palabra_clave(texto_eval, palabras_clave):
-                continue
-            if USAR_FILTRO_IA and not evaluar_relevancia_ia(texto_eval, cliente_nombre, nombre_seccion, palabras_clave, exclusiones, logger):
-                logger(f"    🤖 EXCLUIDA por IA (no relevante para el cliente): {medio[:20]} - {titulo[:30]}...")
-                continue
-
         alcance, tier, ad_value = buscar_metricas_medio(df_medios, page.url if 'page' in locals() and page else link_orig, medio)
         fecha_final = fecha_web if fecha_web else (fecha_rss if fecha_rss else datetime.datetime.now().strftime("%d/%m/%Y"))
 
-        noticias_procesadas.append({
+        bloque_noticia = {
             "medio": limpiar_nombre_medio(medio), "tipo_medio": "Online", "fecha": fecha_final,
             "alcance": alcance, "tier": tier, "ad_value": ad_value, "titulo": titulo, "link": link_orig,
+            "link_destino": link_destino,
             "bajada_real": bajada, "oracion_clave": oracion, "resumen_rss": item.description.text if hasattr(item, 'description') and item.description else "", "origen": origen
+        }
+
+        if origen != 'Manual':
+            texto_eval = f"{titulo} {bajada} {oracion}"
+            es_top_tier = es_tier_1_o_2(tier)
+
+            if es_portal_extranjero(page.url if 'page' in locals() and page else link_orig, medio, texto_eval):
+                logger(f"    🌎 EXCLUIDA por portal extranjero: {medio[:20]}...")
+                if es_top_tier:
+                    evaluaciones_auditoria.append({
+                        "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
+                        "estado": "EXCLUIDA_EXTRANJERO", "motivo": "Contenido o portal identificado como extranjero", "es_ia": False,
+                        "origen_fuente": origen, "bloque_data": bloque_noticia
+                    })
+                continue
+
+            if contiene_exclusion(texto_eval, exclusiones):
+                logger(f"    ⛔ EXCLUIDA por filtro de exclusiones: {medio[:20]} - {titulo[:30]}...")
+                if es_top_tier:
+                    evaluaciones_auditoria.append({
+                        "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
+                        "estado": "EXCLUIDA_EXCLUSION", "motivo": "Término excluido detectado en contenido", "es_ia": False,
+                        "origen_fuente": origen, "bloque_data": bloque_noticia
+                    })
+                continue
+
+            if not contiene_palabra_clave(texto_eval, palabras_clave):
+                logger(f"    🔍 EXCLUIDA por no coincidir palabras clave: {medio[:20]} - {titulo[:30]}...")
+                if es_top_tier:
+                    evaluaciones_auditoria.append({
+                        "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
+                        "estado": "EXCLUIDA_KEYWORD", "motivo": "Palabra clave no presente en contenido visible", "es_ia": False,
+                        "origen_fuente": origen, "bloque_data": bloque_noticia
+                    })
+                continue
+            
+            if requiere_ia:
+                es_rel, motivo_ia = evaluar_relevancia_ia(texto_eval, cliente_nombre, nombre_seccion, palabras_clave, exclusiones, logger)
+                if not es_rel:
+                    logger(f"    🤖 EXCLUIDA por IA (*): {medio[:20]} - {titulo[:30]}... ({motivo_ia})")
+                    if es_top_tier:
+                        evaluaciones_auditoria.append({
+                            "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
+                            "estado": "EXCLUIDA_IA", "motivo": motivo_ia, "es_ia": True,
+                            "origen_fuente": origen, "bloque_data": bloque_noticia
+                        })
+                    continue
+
+        noticias_procesadas.append(bloque_noticia)
+        if link_norm: links_sumados_global.add(link_norm)
+
+        evaluaciones_auditoria.append({
+            "medio": limpiar_nombre_medio(medio), "titulo": titulo, "link": link_orig, "link_destino": link_destino,
+            "estado": "SUMADA", "motivo": "Aprobada e incluida en reporte", "es_ia": False,
+            "origen_fuente": origen, "bloque_data": bloque_noticia
         })
         logger(f"    ✓ SUMADA [{origen_str}]: {medio[:20]} - {titulo[:30]}...")
         
-        if origen != 'manual': 
+        if origen != 'Manual': 
             organicas_ok += 1
 
-    notas_manuales = [n for n in noticias_procesadas if n['origen'] in ['manual', 'grafica']]
-    notas_google = [n for n in noticias_procesadas if n['origen'] not in ['manual', 'grafica']]
+    notas_manuales = [n for n in noticias_procesadas if n['origen'] in ['Manual', 'grafica']]
+    notas_google = [n for n in noticias_procesadas if n['origen'] not in ['Manual', 'grafica']]
 
     notas_manuales = sorted(notas_manuales, key=lambda n: sort_key_final(n, sec_id))
     notas_google = sorted(notas_google, key=lambda n: sort_key_final(n, sec_id))
@@ -642,35 +1102,121 @@ def procesar_seccion(context, sec_id, nombre_seccion, lista_rss, links_manuales,
         
         tipo_html = f" <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>({noti['tipo_medio']})</strong> " if noti['tipo_medio'] != "Gráfica" else " "
         
+        # mars_competencia no lleva métricas de Alcance, Tier ni Ad Value
         if sec_id == 'booking_tema_1':
             info_metricas = f" <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>Ad. Value: $ {noti['ad_value']}</strong> -"
-        elif sec_id in IDS_SINTESIS:
+        elif sec_id in IDS_SINTESIS and sec_id != 'mars_competencia':
             info_metricas = f" <span style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>(Alcance: {noti['alcance']} Tier: {noti['tier']})</span> <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>Ad. Value: $ {noti['ad_value']}</strong> -"
         else:
             info_metricas = " -"
             
-        html_indiv = f'''<p style="font-size: 14px; font-family: Tahoma, sans-serif; line-height: 1.5; margin-top: 0; margin-bottom: 4px; color: #000000;"><strong style="color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;">{noti['medio']}</strong>{tipo_html}<strong style="color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;">{noti['fecha']}</strong>{info_metricas} <a href="{noti['link']}" target="_blank" style="color: {color_tema}; text-decoration: none; font-size: 14px; font-weight: normal; font-family: Tahoma, sans-serif;">{noti['titulo']}</a></p>{bloque_texto}'''
+        html_indiv = f'''<p style="margin-top: 0; margin-bottom: 4px; color: #000000;"><strong style="color: {color_tema}; font-size: 14px;">{noti['medio']}</strong>{tipo_html}<strong style="color: {color_tema}; font-size: 14px;">{noti['fecha']}</strong>{info_metricas} <a href="{noti['link']}" target="_blank" rel="noopener noreferrer" style="color: {color_tema}; text-decoration: none; font-size: 14px; font-weight: normal;">{noti['titulo']}</a></p>{bloque_texto}'''
         
         noti['html_bloque'] = html_indiv
 
-    return noticias_finales
+    return noticias_finales, evaluaciones_auditoria
 
-def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente, cliente_nombre, logger, timeframe_google, solo_manuales=False, solo_banners=False):
+def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente, cliente_nombre, logger, timeframe_google, busquedas_extra=None, solo_manuales=False, solo_banners=False):
     color = configuracion_cliente["color_primario"]
     estructura = configuracion_cliente["secciones"]
     data_editor = []
+    data_auditoria = []
+    links_sumados_global = set()
+    historial_previo = cargar_historial_global()
+
+    if historial_previo:
+        logger(f"📜 Se cargaron {len(historial_previo)} notas registradas en el historial antiduplicados.")
 
     if solo_banners:
         logger("⚡ Modo Dios: Prueba Rápida activada (Generando únicamente banners vacíos)...")
         for sec in estructura:
             img_url = transformar_link_drive(sec.get('img_url', ''))
             data_editor.append({
-                "id": sec['id'], "nombre": sec['nombre'], "img": img_url, "es_separador": sec.get('es_separador', False),
-                "incluir_en_sintesis": sec['id'] in IDS_SINTESIS, "resumen_ia": "", "notas": []
+                "id": sec['id'], "nombre": sec['nombre'], "img": img_url,
+                "incluir_en_sintesis": sec['id'] in IDS_SINTESIS, "resumen_ia": "",
+                "es_separador": sec.get('es_separador', False), "notas": []
             })
-        return data_editor
+            data_auditoria.append({"id": sec['id'], "nombre": sec['nombre_largo'], "evaluaciones": []})
+        return data_editor, data_auditoria
 
-    df_medios, df_feeds = sincronizar_base_medios(cliente_nombre, logger)
+    df_medios, df_feeds, df_gacetillas = sincronizar_base_medios(cliente_nombre, logger)
+    
+    items_rss_por_seccion = {sec['id']: [] for sec in estructura if not sec.get('es_separador')}
+    
+    # 1. BÚSQUEDA AUTOMÁTICA DE LA GACETILLA MÁS RECIENTE DESDE EXCEL
+    if not solo_manuales and df_gacetillas is not None:
+        gacetilla_texto = extraer_gacetilla_mas_reciente(df_gacetillas, cliente_nombre)
+        if gacetilla_texto:
+            logger(f"📰 Gacetilla más reciente encontrada para {cliente_nombre}: '{gacetilla_texto}'")
+            q_gacetilla = urllib.parse.quote(gacetilla_texto)
+            url_gacetilla_rss = f"https://news.google.com/rss/search?q=%22{q_gacetilla}%22%20when%3A{timeframe_google}%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+            
+            sec_dest = estructura[0]['id'] if estructura else None
+            if sec_dest:
+                try:
+                    req = urllib.request.urlopen(urllib.request.Request(url_gacetilla_rss, headers={'User-Agent': 'Mozilla/5.0'}))
+                    soup = BeautifulSoup(req.read(), "xml")
+                    for it in soup.find_all('item')[:20]:
+                        items_rss_por_seccion[sec_dest].append((it, 'Gacetilla Excel'))
+                    logger(f"  ✅ Búsqueda RSS de Gacetilla agregada a la sección '{estructura[0]['nombre']}' con timeframe {timeframe_google}.")
+                except Exception as e:
+                    logger(f"  ⚠️ Error al procesar RSS de Gacetilla: {e}")
+
+    # 2. BÚSQUEDAS EXTRA CONFIGURADAS EN EL PANEL LATERAL
+    if busquedas_extra and not solo_manuales:
+        logger("🔍 Procesando Búsquedas Extra configuradas...")
+        mapa_secciones = {remover_acentos(s['nombre'].lower()): s['id'] for s in estructura if not s.get('es_separador')}
+        mapa_secciones.update({s['id'].lower(): s['id'] for s in estructura if not s.get('es_separador')})
+
+        for extra in busquedas_extra:
+            q_texto = extra.get('q', '').strip()
+            sec_target = str(extra.get('sec', '')).strip()
+            if not q_texto:
+                continue
+
+            sec_id_destino = mapa_secciones.get(remover_acentos(sec_target.lower())) or mapa_secciones.get(sec_target.lower())
+            if not sec_id_destino and estructura:
+                sec_id_destino = estructura[0]['id']
+
+            q_encoded = urllib.parse.quote(q_texto)
+            url_extra_rss = f"https://news.google.com/rss/search?q={q_encoded}%20when%3A{timeframe_google}%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+            
+            try:
+                logger(f"  🔍 Búsqueda Extra [{q_texto}] -> Sección ID: {sec_id_destino}")
+                req = urllib.request.urlopen(urllib.request.Request(url_extra_rss, headers={'User-Agent': 'Mozilla/5.0'}))
+                soup = BeautifulSoup(req.read(), "xml")
+                items_extra = soup.find_all('item')[:20]
+                for it in items_extra:
+                    items_rss_por_seccion[sec_id_destino].append((it, 'Búsqueda Extra'))
+            except Exception as e:
+                logger(f"  ⚠️ Error al consultar Búsqueda Extra ({q_texto}): {e}")
+
+    # 3. FEEDS DEL EXCEL
+    if df_feeds is not None and not df_feeds.empty and not solo_manuales:
+        rss_excel_todos = extraer_todos_rss_excel(df_feeds)
+        if rss_excel_todos:
+            logger(f"📊 Analizando {len(rss_excel_todos)} fuentes de Excel para clasificar notas por sección...")
+            for url_feed in rss_excel_todos:
+                url_ajustada = url_feed.replace("when:1d", f"when:{timeframe_google}").replace("when%3A1d", f"when%3A{timeframe_google}")
+                try:
+                    req = urllib.request.urlopen(urllib.request.Request(url_ajustada, headers={'User-Agent': 'Mozilla/5.0'}))
+                    soup = BeautifulSoup(req.read(), "xml")
+                    for it in soup.find_all('item')[:20]:
+                        tit = it.title.text if it.title else ""
+                        desc = it.description.text if it.description else ""
+                        texto_combo = f"{tit} {desc}"
+                        
+                        link_it = it.link.text if hasattr(it, 'link') and it.link and it.link.text else url_feed
+                        source_it = it.source.text if hasattr(it, 'source') and it.source and it.source.text else urlparse(link_it).netloc.replace("www.", "").split('.')[0]
+                        sitio_origen = limpiar_nombre_medio(source_it)
+
+                        for sec in estructura:
+                            if sec.get('es_separador', False): continue
+                            if contiene_palabra_clave(texto_combo, sec['keywords']) and not contiene_exclusion(texto_combo, sec.get('exclusiones', [])):
+                                items_rss_por_seccion[sec['id']].append((it, 'Feed Excel'))
+                                logger(f"  🔀 Feed Excel [{sitio_origen}]: Nota '{tit[:30]}...' redirigida a 📁 {sec['nombre']}")
+                                break
+                except Exception: pass
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
@@ -678,20 +1224,42 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
         
         for sec in estructura:
             logger(f"\n🔎 ANALIZANDO SECCIÓN: {sec['nombre_largo']}")
+            
             if sec.get('es_separador', False):
                 img_url = transformar_link_drive(sec.get('img_url', ''))
                 data_editor.append({
-                    "id": sec['id'], "nombre": sec['nombre'], "img": img_url, "es_separador": True,
-                    "incluir_en_sintesis": False, "resumen_ia": "", "notas": []
+                    "id": sec['id'],
+                    "nombre": sec['nombre'],
+                    "img": img_url,
+                    "incluir_en_sintesis": False,
+                    "resumen_ia": "",
+                    "es_separador": True,
+                    "notas": []
+                })
+                data_auditoria.append({
+                    "id": sec['id'],
+                    "nombre": sec['nombre_largo'],
+                    "evaluaciones": []
                 })
                 continue
-            
+
             rss_ajustado = [enlace.replace("when:1d", f"when:{timeframe_google}").replace("when%3A1d", f"when%3A{timeframe_google}") for enlace in sec['rss']]
             
-            notas_seccion = procesar_seccion(
-                context, sec['id'], sec['nombre'], rss_ajustado, 
+            items_rss_seccion = []
+            if not solo_manuales:
+                for url_busqueda in rss_ajustado:
+                    try:
+                        req = urllib.request.urlopen(urllib.request.Request(url_busqueda, headers={'User-Agent': 'Mozilla/5.0'}))
+                        for it in BeautifulSoup(req.read(), "xml").find_all('item')[:30]: 
+                            items_rss_seccion.append((it, 'Google News'))
+                    except: pass
+
+            items_rss_totales = items_rss_seccion + items_rss_por_seccion.get(sec['id'], [])
+            
+            notas_seccion, eval_sec = procesar_seccion(
+                context, sec['id'], sec['nombre'], items_rss_totales, 
                 links_manuales.get(sec['id'], []), notas_graficas.get(sec['id'], []),
-                sec['keywords'], sec.get('exclusiones', []), color, sec['limite'], logger, cliente_nombre, df_medios, solo_manuales=solo_manuales
+                sec['keywords'], sec.get('exclusiones', []), color, sec['limite'], logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, historial_previo, solo_manuales=solo_manuales
             )
 
             img_url = transformar_link_drive(sec.get('img_url', ''))
@@ -702,13 +1270,132 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
                 "img": img_url,
                 "incluir_en_sintesis": sec['id'] in IDS_SINTESIS,
                 "resumen_ia": "",
+                "es_separador": False,
                 "notas": [{"html_bloque": n.get('html_bloque', '')} for n in notas_seccion]
+            })
+            
+            data_auditoria.append({
+                "id": sec['id'],
+                "nombre": sec['nombre_largo'],
+                "evaluaciones": eval_sec
             })
 
         context.close()
         browser.close()
     
-    return data_editor
+    return data_editor, data_auditoria
+
+# ====================================================================
+# GENERADOR HTML DE AUDITORÍA Y CONTROL (ARCHIVO APARTE)
+# ====================================================================
+def generar_html_auditoria(cliente_nombre, timeframe, data_auditoria, color):
+    fecha_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    
+    total_sumadas = sum(sum(1 for e in sec['evaluaciones'] if e['estado'] == 'SUMADA') for sec in data_auditoria)
+    total_ia = sum(sum(1 for e in sec['evaluaciones'] if e.get('es_ia')) for sec in data_auditoria)
+    total_excluidas = sum(sum(1 for e in sec['evaluaciones'] if e['estado'] != 'SUMADA') for sec in data_auditoria)
+
+    html = f'''<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>Auditoría y Control de Clipping - {cliente_nombre}</title>
+    <style>
+        body {{ font-family: 'Tahoma', sans-serif; background-color: #f1f5f9; color: #1e293b; margin: 0; padding: 24px; }}
+        .header {{ background-color: {color}; color: #ffffff; padding: 24px; border-radius: 12px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }}
+        .header h1 {{ margin: 0 0 8px 0; font-size: 22px; }}
+        .header p {{ margin: 0; font-size: 13px; opacity: 0.9; }}
+        .stats {{ display: flex; gap: 16px; margin-top: 16px; }}
+        .stat-card {{ background: rgba(255,255,255,0.15); padding: 10px 16px; border-radius: 8px; font-size: 12px; font-weight: bold; }}
+        .seccion {{ background: #ffffff; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #cbd5e1; box-shadow: 0 2px 6px rgba(0,0,0,0.02); }}
+        .seccion-title {{ font-size: 16px; font-weight: bold; color: {color}; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; }}
+        .table {{ width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }}
+        .table th {{ background: #f8fafc; text-align: left; padding: 10px; border-bottom: 2px solid #cbd5e1; color: #475569; }}
+        .table td {{ padding: 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }}
+        .badge {{ display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 10px; font-weight: bold; text-transform: uppercase; }}
+        .badge-sumada {{ background: #dcfce7; color: #166534; }}
+        .badge-ia {{ background: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; }}
+        .badge-excluido {{ background: #ffe4e6; color: #9f1239; }}
+        .motivo-ia {{ background: #faf5ff; border-left: 3px solid #a855f7; padding: 6px 10px; margin-top: 4px; font-size: 11px; color: #581c87; border-radius: 0 4px 4px 0; }}
+        .fuente-tag {{ color: #64748b; font-style: italic; font-size: 11px; margin-top: 2px; display: block; }}
+        a {{ color: #0284c7; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Reporte de Control y Auditoría de Clipping</h1>
+        <p>Cliente: <strong>{cliente_nombre}</strong> | Fecha de Proceso: <strong>{fecha_str}</strong> | Rango Búsqueda: <strong>{timeframe}</strong></p>
+        <div class="stats">
+            <div class="stat-card">✅ Sumadas al Reporte: {total_sumadas}</div>
+            <div class="stat-card">🤖 Excluidas por IA (*): {total_ia}</div>
+            <div class="stat-card">🚫 Excluidas Totales (Tier 1/2): {total_excluidas}</div>
+        </div>
+    </div>
+'''
+
+    for sec in data_auditoria:
+        html += f'''
+    <div class="seccion">
+        <div class="seccion-title">📁 {sec['nombre']}</div>
+'''
+        if not sec['evaluaciones']:
+            html += '<p style="color: #64748b; font-size: 12px; font-style: italic;">Sin notas evaluadas en esta sección.</p>'
+        else:
+            evals_ordenadas = sorted(
+                sec['evaluaciones'],
+                key=lambda e: (
+                    0 if e['estado'] == 'SUMADA' else 1,
+                    str(e.get('estado', '')) if e['estado'] != 'SUMADA' else '',
+                    remover_acentos(str(e.get('medio', '')).lower()),
+                    remover_acentos(str(e.get('titulo', '')).lower())
+                )
+            )
+            html += '''
+        <table class="table">
+            <thead>
+                <tr>
+                    <th style="width: 15%;">Medio</th>
+                    <th style="width: 45%;">Título y Enlace</th>
+                    <th style="width: 15%;">Estado</th>
+                    <th style="width: 25%;">Detalle / Motivo de Exclusión</th>
+                </tr>
+            </thead>
+            <tbody>
+'''
+            for ev in evals_ordenadas:
+                es_manual = ev.get('origen_fuente') in ['Manual', 'Gráfica', 'grafica', 'manual'] or 'manual' in str(ev.get('motivo','')).lower()
+
+                if ev['estado'] == 'SUMADA':
+                    badge_html = '<span class="badge badge-sumada">MANUAL</span>' if es_manual else ''
+                elif ev.get('es_ia'):
+                    badge_html = '<span class="badge badge-ia">IA</span>'
+                else:
+                    est_clean = str(ev['estado']).replace('EXCLUIDA_', '').replace('_', ' ')
+                    badge_html = f'<span class="badge badge-excluido">{est_clean}</span>'
+
+                fuente_str = ev.get("origen_fuente", "")
+                fuente_html = f'<span class="fuente-tag">Fuente: {fuente_str}</span>' if (not ev['estado'] == 'SUMADA' and fuente_str) else ''
+
+                motivo_html = ev['motivo']
+                if ev.get('es_ia'):
+                    motivo_html = f'<div class="motivo-ia"><strong>* Por qué se excluyó:</strong> {ev["motivo"]}{fuente_html}</div>'
+                elif not ev['estado'] == 'SUMADA':
+                    motivo_html = f'{ev["motivo"]}{fuente_html}'
+
+                html += f'''
+                <tr>
+                    <td><strong>{ev['medio']}</strong></td>
+                    <td><a href="{ev['link']}" target="_blank" rel="noopener noreferrer">{ev['titulo']}</a></td>
+                    <td>{badge_html}</td>
+                    <td>{motivo_html}</td>
+                </tr>
+'''
+            html += '</tbody></table>'
+        html += '</div>'
+
+    html += '</body></html>'
+    return html
 
 # ====================================================================
 # GENERADOR HTML QUILL.JS
@@ -881,9 +1568,14 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         .drag-handle { cursor: grab; color: #94a3b8; font-size: 18px; padding: 0 6px; user-select: none; }
         .drag-handle:active { cursor: grabbing; }
 
+        /* REGLAS CSS PARA QUITAR LA DEFORMACIÓN DEL BLOQUE DE NOTA AL EDITAR EN QUILL */
         .ql-container.ql-snow { border: none !important; font-family: 'Tahoma', sans-serif !important; }
         .ql-editor { font-family: 'Tahoma', sans-serif !important; padding: 4px 0 !important; line-height: 1.5 !important; }
-        .ql-editor p { font-family: 'Tahoma', sans-serif !important; line-height: 1.5 !important; margin: 0 0 6px 0 !important; }
+        .ql-editor p { font-family: 'Tahoma', sans-serif !important; line-height: 1.5 !important; margin: 0 0 6px 0 !important; color: #000000 !important; }
+        .ql-editor p:first-child { font-size: 14px !important; }
+        .ql-editor p:not(:first-child) { font-size: 12px !important; }
+        .ql-editor strong, .ql-editor b { font-family: 'Tahoma', sans-serif !important; }
+        .ql-editor a { font-family: 'Tahoma', sans-serif !important; text-decoration: none !important; }
         
         .ql-toolbar.ql-snow { 
             border: none !important; 
@@ -945,6 +1637,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             <span class="btn-icon-symbol">👁️</span>
             <span class="sidebar-text">Vista Previa</span>
         </button>
+        <div id="btn-restaurar-sintesis-container"></div>
         <button class="btn btn-side" onclick="restablecerOriginal()" style="background:#fef2f2; color:#991b1b; margin-top: 12px;">
             <span class="btn-icon-symbol">🔄</span>
             <span class="sidebar-text">Restablecer Original</span>
@@ -1057,6 +1750,12 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             }
         }
 
+        function toggleSintesis(visible) {
+            estado.forEach(s => s._ocultar_sintesis = !visible);
+            render();
+            guardarBorrador();
+        }
+
         let quillInstances = {};
         let dragSrcSec = null, dragSrcNota = null;
 
@@ -1141,28 +1840,36 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 
         function actualizarContadorTotal() {
             let total = 0;
-            estado.forEach(sec => total += sec.notas.length);
+            estado.forEach(sec => total += sec.notas ? sec.notas.length : 0);
             document.getElementById('contador-total').innerHTML = 'Total notas: <strong>' + total + '</strong>';
         }
 
         function render() {
             const cont = document.getElementById('contenedor-secciones'); 
             cont.innerHTML = '';
+
+            const sintesisOculta = estado.length > 0 && estado[0]._ocultar_sintesis === true;
+            
+            // Botón en sidebar para restaurar síntesis si está oculta
+            const btnContainer = document.getElementById('btn-restaurar-sintesis-container');
+            if (btnContainer) {
+                if (sintesisOculta) {
+                    btnContainer.innerHTML = `<button class="btn btn-side" onclick="toggleSintesis(true)" style="background:#e0f2fe; color:#0369a1; margin-bottom:8px;"><span class="btn-icon-symbol">➕</span><span class="sidebar-text">Restaurar Síntesis</span></button>`;
+                } else {
+                    btnContainer.innerHTML = '';
+                }
+            }
             
             const secsSintesis = estado.filter(s => s.incluir_en_sintesis && s.notas && s.notas.length > 0);
-            if (secsSintesis.length > 0) {
+            if (secsSintesis.length > 0 && !sintesisOculta) {
                 const sinDiv = document.createElement('div');
                 sinDiv.className = 'seccion';
                 sinDiv.style.borderLeft = '5px solid var(--tema_color)';
                 sinDiv.style.background = '#f8fafc';
 
                 const sHeader = document.createElement('div');
-                sHeader.style.padding = '14px 20px';
-                sHeader.style.fontWeight = 'bold';
-                sHeader.style.fontStyle = 'italic';
-                sHeader.style.color = 'var(--tema_color)';
-                sHeader.style.fontSize = '15px';
-                sHeader.innerHTML = 'SÍNTESIS DEL DÍA · RESUMEN IA';
+                sHeader.style.cssText = 'padding: 14px 20px; font-weight: bold; font-style: italic; color: var(--tema_color); font-size: 15px; display: flex; justify-content: space-between; align-items: center;';
+                sHeader.innerHTML = `<span>SÍNTESIS DEL DÍA · RESUMEN IA</span><button class="btn btn-icon danger" onclick="toggleSintesis(false)" style="font-size: 11px; padding: 3px 10px; font-style: normal;">🗑️ Eliminar Síntesis</button>`;
                 sinDiv.appendChild(sHeader);
 
                 const sBody = document.createElement('div');
@@ -1220,14 +1927,18 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             }
 
             estado.forEach((sec, secIdx) => {
+                // RENDERIZADO ESPECIAL PARA BANNERS SEPARADORES EN EL EDITOR
                 if (sec.es_separador) {
-                    const bannerDiv = document.createElement('div');
-                    bannerDiv.style.textAlign = 'center';
-                    bannerDiv.style.margin = '10px 0';
-                    if (sec.img) bannerDiv.innerHTML = `<img src="${sec.img}" style="max-width:100%; border-radius:8px;">`;
-                    cont.appendChild(bannerDiv);
+                    const secDiv = document.createElement('div'); 
+                    secDiv.className = 'seccion';
+                    secDiv.style.cssText = 'background: transparent; border: none; box-shadow: none; text-align: center; margin: 16px 0; border-radius: 12px; overflow: hidden;';
+                    if (sec.img) {
+                        secDiv.innerHTML = `<img src="${sec.img}" style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);" title="Banner Separador: ${sec.nombre}">`;
+                    }
+                    cont.appendChild(secDiv);
                     return;
                 }
+
                 const secDiv = document.createElement('div'); 
                 secDiv.className = 'seccion';
                 secDiv.dataset.secIdx = secIdx;
@@ -1299,25 +2010,30 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             const misColores = ['__COLOR_CLIENTE__', '#000000', '#e60000', '#ff9900', '#ffff00', '#008a00', '#0066cc', '#9933ff', '#ffffff'];
             quillInstances = {};
 
+            const sintesisOculta = estado.length > 0 && estado[0]._ocultar_sintesis === true;
             const secsSintesis = estado.filter(s => s.incluir_en_sintesis && s.notas && s.notas.length > 0);
-            secsSintesis.forEach((sec) => {
-                const secIndexReal = estado.findIndex(s => s.id === sec.id);
-                const editorSintesisId = `quill-sintesis-${secIndexReal}`;
-                const el = document.getElementById(editorSintesisId);
-                if (el && !quillInstances[editorSintesisId]) {
-                    const q = new Quill(`#${editorSintesisId}`, {
-                        theme: 'snow',
-                        modules: { toolbar: false }
-                    });
-                    q.on('text-change', function() {
-                        estado[secIndexReal].resumen_ia = q.root.innerHTML;
-                        guardarBorrador();
-                    });
-                    quillInstances[editorSintesisId] = q;
-                }
-            });
+            
+            if (!sintesisOculta) {
+                secsSintesis.forEach((sec) => {
+                    const secIndexReal = estado.findIndex(s => s.id === sec.id);
+                    const editorSintesisId = `quill-sintesis-${secIndexReal}`;
+                    const el = document.getElementById(editorSintesisId);
+                    if (el && !quillInstances[editorSintesisId]) {
+                        const q = new Quill(`#${editorSintesisId}`, {
+                            theme: 'snow',
+                            modules: { toolbar: false }
+                        });
+                        q.on('text-change', function() {
+                            estado[secIndexReal].resumen_ia = q.root.innerHTML;
+                            guardarBorrador();
+                        });
+                        quillInstances[editorSintesisId] = q;
+                    }
+                });
+            }
 
             estado.forEach((sec, secIdx) => {
+                if (sec.es_separador) return;
                 sec.notas.forEach((nota, notaIdx) => {
                     const editorDivId = `quill-${secIdx}-${notaIdx}`;
                     const el = document.getElementById(editorDivId);
@@ -1353,7 +2069,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                             
                             let optionsHtml = `<option disabled selected>⇋ Mover a...</option>`;
                             estado.forEach((s, idx) => {
-                                if (idx !== secIdx) {
+                                if (idx !== secIdx && !s.es_separador) {
                                     optionsHtml += `<option value="${idx}">${s.nombre}</option>`;
                                 }
                             });
@@ -1407,15 +2123,16 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         }
 
         function generarHtmlFinal(){
+            const sintesisOculta = estado.length > 0 && estado[0]._ocultar_sintesis === true;
             let html = '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">';
-            html += '<style>body, table, td, p, div, span, a { font-family: Tahoma, sans-serif !important; } p { margin: 0 0 6px 0 !important; line-height: 1.5 !important; } a { text-decoration: none; }</style>';
+            html += '<style>body, table, td, p, div, span, a, strong, b { font-family: Tahoma, sans-serif !important; } p { margin: 0 0 6px 0 !important; line-height: 1.5 !important; color: #000000 !important; } p:first-child { font-size: 14px !important; } p:not(:first-child) { font-size: 12px !important; } a { text-decoration: none !important; }</style>';
             html += '</head><body style="margin: 0; padding: 0; background-color: #f4f4f9; font-family: Tahoma, sans-serif;">';
             html += '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f4f9; padding: 20px 0;"><tr><td align="center"><table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border: 1px solid #cccccc;">';
             
             html += `<tr><td align="center" style="padding: 0;"><img src="${BANNER_PRINCIPAL}" alt="Banner Principal" width="600" style="display: block; max-width: 600px; height: auto; border: 0;"></td></tr>`;
             
             const secsExc = estado.filter(s => s.incluir_en_sintesis && s.notas && s.notas.length > 0);
-            if(secsExc.length > 0){ 
+            if(secsExc.length > 0 && !sintesisOculta){ 
                 let html_sintesis = '<tr><td style="padding: 20px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 8px 0 8px 0;"><tr><td style="background: #f0f4f4; border-left: 4px solid __COLOR_CLIENTE__; padding: 18px 22px; border-radius: 4px;"><p style="margin: 0 0 12px 0 !important; font-family: Tahoma, sans-serif !important; font-size: 12px !important; font-weight: bold !important; color: __COLOR_CLIENTE__ !important; letter-spacing: 0.5px; text-transform: uppercase;">SÍNTESIS DEL DÍA · RESUMEN IA</p>';
 
                 secsExc.forEach(sec => {
@@ -1430,7 +2147,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                             let enlace = div.querySelector('a'); let tituloReal = enlace ? enlace.textContent : 'Nota';
                             let medioElem = div.querySelector('strong'); let medioReal = medioElem ? medioElem.textContent : '';
                             let linkUrl = enlace ? enlace.getAttribute('href') : '#';
-                            items.push('<li style="margin-bottom: 4px;"><strong>' + medioReal + ':</strong> <a href="' + linkUrl + '" target="_blank" style="color: __COLOR_CLIENTE__; text-decoration: none; font-size: 12px;">' + tituloReal + '</a></li>');
+                            items.push('<li style="margin-bottom: 4px;"><strong>' + medioReal + ':</strong> <a href="' + linkUrl + '" target="_blank" rel="noopener noreferrer" style="color: __COLOR_CLIENTE__; text-decoration: none; font-size: 12px;">' + tituloReal + '</a></li>');
                         });
                         html_sintesis += '<ul style="margin: 0 0 10px 0; padding-left: 18px; font-family: Tahoma, sans-serif; font-size: 12px; line-height: 1.5; color: #333333;">' + items.join('\n') + '</ul>';
                     }
@@ -1441,7 +2158,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             }
 
             estado.forEach((sec, index) => {
-                if(index !== 0 || secsExc.length > 0) {
+                if(index !== 0 || (secsExc.length > 0 && !sintesisOculta)) {
                     html += '<tr><td style="font-size: 0px; line-height: 0px; height: 20px;">&nbsp;</td></tr>';
                 }
                 
@@ -1508,23 +2225,33 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 async def index():
     ui.add_head_html('''
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
         body {
             background-color: #f2f4f7 !important;
             background-image: 
-                radial-gradient(circle at 15% 15%, rgba(0, 110, 116, 0.08) 0%, transparent 45%),
-                radial-gradient(circle at 85% 85%, rgba(0, 110, 116, 0.06) 0%, transparent 45%),
-                radial-gradient(rgba(0, 110, 116, 0.07) 1px, transparent 1px) !important;
+                radial-gradient(circle at 15% 15%, rgba(15, 23, 42, 0.06) 0%, transparent 45%),
+                radial-gradient(circle at 85% 85%, rgba(15, 23, 42, 0.05) 0%, transparent 45%),
+                radial-gradient(rgba(15, 23, 42, 0.05) 1px, transparent 1px) !important;
             background-size: 100% 100%, 100% 100%, 24px 24px !important;
             background-attachment: fixed !important;
         }
     </style>
+    <script>
+        document.addEventListener('click', function(e) {
+            var target = e.target.closest('a');
+            if (target && target.href && target.href.startsWith('http')) {
+                target.setAttribute('target', '_blank');
+                target.setAttribute('rel', 'noopener noreferrer');
+            }
+        }, true);
+    </script>
     ''')
 
     await ui.context.client.connected()
 
     if not app.storage.tab.get('authenticated', False):
         with ui.card().classes('absolute-center items-center p-8 shadow-xl rounded-2xl w-96'):
-            ui.label('🔒 Acceso Restringido').classes('text-2xl font-bold text-[#006E74] mb-2')
+            ui.label('🔒 Acceso Restringido').classes('text-2xl font-bold text-[#0F172A] mb-2')
             ui.label('Ingresá tus credenciales').classes('text-gray-500 mb-6')
             
             user_input = ui.input('👤 Usuario').classes('w-full mb-2')
@@ -1541,21 +2268,23 @@ async def index():
                 else:
                     ui.notify('❌ Usuario o contraseña incorrectos', color='negative')
 
-            ui.button('Ingresar al Sistema', on_click=attempt_login).classes('w-full bg-[#006E74] text-white font-bold rounded-lg')
+            ui.button('Ingresar al Sistema', on_click=attempt_login).classes('w-full bg-[#0F172A] text-white font-bold rounded-lg')
         return
 
     @ui.refreshable
     def header_title():
-        ui.label(f'📰 Editor de: {state.cliente}').classes('text-xl font-bold tracking-wide')
+        with ui.row().classes('items-center gap-2'):
+            ui.label('🏢').classes('text-xl')
+            ui.label('Ketchum Argentina').classes('text-xl font-extrabold text-white').style('font-family: "Inter", "Segoe UI", sans-serif; letter-spacing: 1.2px; text-transform: uppercase;')
 
-    with ui.header().classes('justify-between items-center bg-[#006E74] shadow-md px-6 py-3'):
+    with ui.header().classes('justify-between items-center bg-[#0F172A] shadow-md px-6 py-3'):
         header_title()
         def logout():
             registrar_actividad(app.storage.tab.get('username', 'usuario'), "Cierre de sesión", "Salió del sistema")
             app.storage.tab['authenticated'] = False
             ui.navigate.reload()
         with ui.row().classes('items-center gap-4'):
-            ui.label(f'v{APP_VERSION}').classes('text-white italic text-sm')
+            ui.label(f'v{APP_VERSION}').classes('text-slate-300 italic text-sm')
             ui.button('🚪 Cerrar Sesión', on_click=logout).props('flat text-color=white').classes('font-bold')
 
     with ui.left_drawer(value=True).classes('bg-[#f8f9fa] border-r border-gray-200 p-6'):
@@ -1608,13 +2337,178 @@ async def index():
             
         sidebar_content()
 
+    def mostrar_pantalla_revision(data_editor, data_auditoria):
+        """Abre un diálogo interactivo en pantalla para revisar y modificar la decisión de cada nota antes de generar el reporte final."""
+        with ui.dialog().classes('w-full') as dialog, ui.card().classes('w-full max-w-5xl p-6 bg-slate-50 rounded-2xl shadow-2xl'):
+            ui.label('🔍 Revisión y Control de Notas (Previo a Generar)').classes('text-xl font-bold text-slate-800 mb-1')
+            ui.label('Podés incluir notas que hayan sido excluidas por la IA o el filtro, o quitar notas sumadas antes de descargar los archivos.').classes('text-xs text-slate-500 mb-4')
+
+            dialog.open()
+
+            # CONTENEDOR PERSISTENTE AFUERA DE LA FUNCIÓN REFRESHABLE PARA MANTENER POSICIÓN DE SCROLL
+            scroll_container = ui.scroll_area().classes('w-full h-[550px] pr-2').props('id=review-scroll-area')
+
+            with scroll_container:
+                @ui.refreshable
+                def render_lista_revision():
+                    for sec_idx, sec in enumerate(data_auditoria):
+                        sec_id = sec['id']
+                        sec_editor = next((s for s in data_editor if s['id'] == sec_id), None)
+                        
+                        with ui.card().classes('w-full mb-4 p-4 border border-slate-200 bg-white rounded-xl shadow-sm'):
+                            ui.label(f"📁 {sec['nombre']}").classes('font-bold text-base text-slate-800 mb-2')
+                            
+                            evals = sec.get('evaluaciones', [])
+                            if not evals:
+                                ui.label("Sin notas procesadas en esta sección.").classes('text-xs text-slate-400 italic')
+                                continue
+
+                            # ORDENAR PRIORITARIO: SUMADAS primero (0), luego EXCLUIDAS ordenadas por su motivo/variable (1) y orden alfabético
+                            evals_ordenadas = sorted(
+                                evals,
+                                key=lambda e: (
+                                    0 if e['estado'] == 'SUMADA' else 1,
+                                    str(e.get('estado', '')) if e['estado'] != 'SUMADA' else '',
+                                    remover_acentos(str(e.get('medio', '')).lower()),
+                                    remover_acentos(str(e.get('titulo', '')).lower())
+                                )
+                            )
+
+                            with ui.column().classes('w-full gap-2'):
+                                for ev_idx, ev in enumerate(evals_ordenadas):
+                                    es_sumada = ev['estado'] == 'SUMADA'
+                                    bg_color = 'bg-emerald-50 border-emerald-200' if es_sumada else 'bg-rose-50 border-rose-200'
+                                    
+                                    with ui.row().classes(f'w-full items-center justify-between p-3 rounded-lg border {bg_color} text-xs'):
+                                        with ui.column().classes('w-[72%] gap-1'):
+                                            # Renglón superior: Medio + Chip de Estado + Motivo de exclusión al costado
+                                            with ui.row().classes('items-center gap-2 flex-wrap'):
+                                                ui.label(ev['medio']).classes('font-bold text-slate-800 text-sm')
+                                                
+                                                es_manual = ev.get('origen_fuente') in ['Manual', 'Gráfica', 'grafica', 'manual'] or 'manual' in str(ev.get('motivo','')).lower()
+
+                                                if es_sumada:
+                                                    if es_manual:
+                                                        ui.chip('MANUAL', color='emerald-2', text_color='emerald-9').classes('text-[10px] font-bold py-0 h-5')
+                                                    # Si es sumada automática, NO muestra ningún cartel/chip
+                                                elif ev.get('es_ia'):
+                                                    ui.chip('IA', color='purple-2', text_color='purple-9').classes('text-[10px] font-bold py-0 h-5')
+                                                    ui.label(f"Motivo: {ev['motivo']}").classes('text-xs text-purple-900 font-bold italic bg-purple-100/80 px-2 py-0.5 rounded')
+                                                else:
+                                                    est_clean = str(ev['estado']).replace('EXCLUIDA_', '').replace('_', ' ')
+                                                    ui.chip(est_clean, color='rose-2', text_color='rose-9').classes('text-[10px] font-bold py-0 h-5')
+                                                    ui.label(f"Motivo: {ev['motivo']}").classes('text-xs text-rose-900 font-bold italic bg-rose-100/80 px-2 py-0.5 rounded')
+                                            
+                                            # Renglón inferior: Título e hipervínculo
+                                            ui.html(f'<a href="{ev["link"]}" target="_blank" rel="noopener noreferrer" class="text-sky-600 font-semibold underline text-xs">{ev["titulo"]}</a>')
+                                            
+                                            # Muestra de la fuente de extracción en gris cursiva para notas excluidas
+                                            if not es_sumada and ev.get('origen_fuente'):
+                                                ui.label(f"Fuente: {ev.get('origen_fuente')}").classes('text-slate-500 italic text-[11px] font-normal mt-0.5')
+
+                                        # Acciones interactivas con preservación exacta de la posición de scroll
+                                        async def toggle_nota(ev_ref=ev, s_edit=sec_editor, sec_ref=sec):
+                                            scroll_pos = 0
+                                            try:
+                                                scroll_pos = await ui.run_javascript('''
+                                                    (function() {
+                                                        let el = document.querySelector('#review-scroll-area .q-scrollarea__container');
+                                                        return el ? el.scrollTop : 0;
+                                                    })()
+                                                ''')
+                                            except Exception:
+                                                scroll_pos = 0
+
+                                            if ev_ref['estado'] == 'SUMADA':
+                                                ev_ref['estado'] = 'EXCLUIDA_MANUAL'
+                                                ev_ref['motivo'] = 'Quitada manualmente por el usuario en revisión'
+                                            else:
+                                                ev_ref['estado'] = 'SUMADA'
+                                                ev_ref['motivo'] = 'Sumada manualmente en revisión'
+
+                                            # Reordenar evaluaciones
+                                            sumadas = [e for e in sec_ref['evaluaciones'] if e['estado'] == 'SUMADA']
+                                            excluidas = [e for e in sec_ref['evaluaciones'] if e['estado'] != 'SUMADA']
+
+                                            sumadas.sort(key=lambda e: (remover_acentos(str(e.get('medio', '')).lower()), remover_acentos(str(e.get('titulo', '')).lower())))
+                                            excluidas.sort(key=lambda e: (str(e.get('estado', '')), remover_acentos(str(e.get('medio', '')).lower()), remover_acentos(str(e.get('titulo', '')).lower())))
+
+                                            sec_ref['evaluaciones'] = sumadas + excluidas
+
+                                            # Reconstruir notas en el editor
+                                            if s_edit:
+                                                s_edit['notas'] = []
+                                                cfg = CLIENTES_CONFIG[state.cliente]
+                                                for e_sum in sumadas:
+                                                    b = e_sum.get('bloque_data')
+                                                    if b:
+                                                        if 'html_bloque' in b and b['html_bloque']:
+                                                            s_edit['notas'].append({"html_bloque": b['html_bloque']})
+                                                        else:
+                                                            bloque_texto = construir_bloque_texto(b.get('bajada_real', ''), b.get('oracion_clave', ''), b.get('titulo', ''), cfg['secciones'][0]['keywords'], s_edit['id'], b.get('resumen_rss', ''))
+                                                            tipo_html = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>({b.get('tipo_medio', 'Online')})</strong> " if b.get('tipo_medio') != "Gráfica" else " "
+                                                            info_metricas = " -"
+                                                            if s_edit['id'] == 'booking_tema_1':
+                                                                info_metricas = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
+                                                            elif s_edit['id'] in IDS_SINTESIS and s_edit['id'] != 'mars_competencia':
+                                                                info_metricas = f" <span style='color: {cfg['color_primario']}; font-size: 14px;'>(Alcance: {b.get('alcance', '?')} Tier: {b.get('tier', '?')})</span> <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
+                                                            
+                                                            html_indiv = f'''<p style="margin-top: 0; margin-bottom: 4px; color: #000000;"><strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('medio', '')}</strong>{tipo_html}<strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('fecha', '')}</strong>{info_metricas} <a href="{b.get('link', '#')}" target="_blank" rel="noopener noreferrer" style="color: {cfg['color_primario']}; text-decoration: none; font-size: 14px; font-weight: normal;">{b.get('titulo', '')}</a></p>{bloque_texto}'''
+                                                            s_edit['notas'].append({"html_bloque": html_indiv})
+
+                                            render_lista_revision.refresh()
+
+                                            if scroll_pos:
+                                                try:
+                                                    await ui.run_javascript(f'''
+                                                        (function() {{
+                                                            let el = document.querySelector('#review-scroll-area .q-scrollarea__container');
+                                                            if (el) el.scrollTop = {scroll_pos};
+                                                        }})()
+                                                    ''')
+                                                except Exception: pass
+
+                                        if es_sumada:
+                                            ui.button('❌ Quitar', on_click=toggle_nota).classes('bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm')
+                                        else:
+                                            ui.button('➕ Incluir en Reporte', on_click=toggle_nota).classes('bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm')
+
+            render_lista_revision()
+
+            def descargar_confirmado():
+                dialog.close()
+                fecha_hoy = datetime.datetime.now().strftime("%d-%m-%y")
+                config = CLIENTES_CONFIG[state.cliente]
+                
+                # GUARDAR EN HISTORIAL EXCEL Y JSON LAS NOTAS CONFIRMADAS
+                guardar_en_historial_excel(state.cliente, data_auditoria)
+
+                # 1. Editor Quill HTML
+                html_resultado = generar_html_editor(config["banner_principal_url"], data_editor, config["color_primario"], state.cliente)
+                nombre_archivo_editor = f'Clipping {state.cliente} {fecha_hoy}.html'
+                ui.download(html_resultado.encode('utf-8'), nombre_archivo_editor)
+                
+                # 2. Auditoría HTML
+                html_auditoria = generar_html_auditoria(state.cliente, state.timeframe, data_auditoria, config["color_primario"])
+                nombre_archivo_auditoria = f'Auditoria Clipping {state.cliente} {fecha_hoy}.html'
+                ui.download(html_auditoria.encode('utf-8'), nombre_archivo_auditoria)
+                
+                ui.notify('🎉 Reportes finales generados, descargados e historial Excel actualizado', color='positive', position='top')
+
+            with ui.row().classes('w-full justify-end gap-3 mt-4 border-t border-slate-200 pt-4'):
+                ui.button('Cancelar', on_click=dialog.close).props('flat text-color=grey-7').classes('font-bold')
+                ui.button('📥 Confirmar y Generar Reportes Finales', on_click=descargar_confirmado).classes('bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2 px-4 rounded-xl shadow-md')
+
     async def procesar_reporte(solo_manuales=False, solo_banners=False):
-        if not state.log_container or not state.timer_label:
+        if not state.log_box or not state.timer_label or not state.log_container or not state.status_chip:
             ui.notify('❌ Error de UI: La consola no está lista', color='negative')
             return
 
         state.timer_label.classes(remove='hidden')
-        state.log_container.classes(remove='hidden')
+        state.status_chip.classes(remove='hidden')
+        state.status_chip.set_text("📍 Iniciando motor de búsqueda...")
+        state.log_box.classes(remove='hidden')
+        state.log_container.clear()
         state.log_container.push("🚀 Iniciando motor de procesamiento...")
         
         registrar_actividad(app.storage.tab.get('username', 'usuario'), "Generó Reporte", f"Cliente: {state.cliente} | Manuales: {solo_manuales} | Banners: {solo_banners}")
@@ -1637,18 +2531,25 @@ async def index():
             datos_links[sid] = [url.strip() for url in re.split(r'[,\n\s]+', raw_links) if url.strip() and url.strip().startswith('http')]
             datos_grafica[sid] = [g for g in state.graficas.get(sid, []) if g['medio'].strip() and g['titulo'].strip()]
 
+        busquedas_extra_validas = [e for e in state.extra_searches if e.get('q', '').strip()]
+
         log_queue = queue.Queue()
         def safe_logger(msg): log_queue.put(msg)
         
         def flush_logs():
             while not log_queue.empty():
+                msg = log_queue.get()
                 if state.log_container:
-                    state.log_container.push(log_queue.get())
+                    state.log_container.push(msg)
+                if "🔎 ANALIZANDO SECCIÓN:" in msg:
+                    nombre_sec = msg.replace("🔎 ANALIZANDO SECCIÓN:", "").strip()
+                    if state.status_chip:
+                        state.status_chip.set_text(f"📍 Sección actual: {nombre_sec}")
 
-        ui_timer = ui.timer(0.5, flush_logs)
+        ui_timer = ui.timer(0.3, flush_logs)
 
         try:
-            data_editor = await run.io_bound(
+            data_editor, data_auditoria = await run.io_bound(
                 orquestador_principal,
                 datos_links,
                 datos_grafica,
@@ -1656,6 +2557,7 @@ async def index():
                 state.cliente,
                 safe_logger,
                 state.timeframe,
+                busquedas_extra_validas,
                 solo_manuales,
                 solo_banners
             )
@@ -1664,19 +2566,24 @@ async def index():
             ui_timer.deactivate()
             ui_chrono.deactivate()
 
+            if state.status_chip:
+                state.status_chip.set_text("✅ Proceso completado exitosamente")
+
             if state.log_container:
-                state.log_container.push("✅ PROCESO TERMINADO. Generando editor...")
-            html_resultado = generar_html_editor(config["banner_principal_url"], data_editor, config["color_primario"], state.cliente)
+                state.log_container.push("✅ PROCESO TERMINADO. Abriendo pantalla de revisión...")
+                
+            state.last_data_editor = data_editor
+            state.last_data_auditoria = data_auditoria
+
+            # Abrir diálogo interactivo de revisión en pantalla
+            mostrar_pantalla_revision(data_editor, data_auditoria)
             
-            fecha_hoy = datetime.datetime.now().strftime("%d-%m-%y")
-            nombre_archivo = f'Clipping {state.cliente} {fecha_hoy}.html'
-            
-            ui.download(html_resultado.encode('utf-8'), nombre_archivo)
-            ui.notify('🎉 Reporte procesado y descargado exitosamente', color='positive', position='top')
         except Exception as e:
             flush_logs()
             ui_timer.deactivate()
             ui_chrono.deactivate()
+            if state.status_chip:
+                state.status_chip.set_text("❌ Error durante la generación")
             if state.log_container:
                 state.log_container.push(f"❌ Error durante el proceso: {str(e)}")
             ui.notify('❌ Error al generar. Mirá el log de pantalla.', color='negative')
@@ -1702,7 +2609,7 @@ async def index():
                                 url_code_cb = f"{URL_MAIN_PYTHON_GITHUB}?t={int(time.time())}"
                                 r_code = requests.get(url_code_cb, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
                                 if r_code.status_code == 200 and len(r_code.text) > 500:
-                                    ruta_script = os.path.abspath(sys.argv[0])
+                                    ruta_script = os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else sys.argv[0])
                                     with open(ruta_script, "w", encoding="utf-8") as f:
                                         f.write(r_code.text)
                                     ui.notify('✅ ¡Actualización instalada correctamente! Reiniciando...', type='positive', position='top-right')
@@ -1727,7 +2634,17 @@ async def index():
                         with ui.column().classes('gap-0'):
                             ui.label('CLIENTE ACTIVO').classes('text-xs font-bold text-gray-400 tracking-wider')
                             ui.label(state.cliente).classes('text-2xl font-black').style(f'color: {color};')
-                    ui.chip(f'Rango: {state.timeframe}', color='grey-2', text_color='grey-8').classes('font-bold')
+                    
+                    gacetilla_txt = obtener_gacetilla_cliente_cached(state.cliente)
+                    with ui.column().classes('items-end gap-1 max-w-md'):
+                        ui.label('📰 GACETILLA ACTIVA').classes('text-[10px] font-bold text-gray-400 tracking-wider')
+                        if gacetilla_txt:
+                            q_gacetilla = urllib.parse.quote(gacetilla_txt)
+                            link_gacetilla_rss = f"https://news.google.com/rss/search?q=%22{q_gacetilla}%22%20when%3A{state.timeframe}%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+                            ui.label(f'"{gacetilla_txt}"').classes('text-xs font-semibold text-gray-700 italic text-right line-clamp-2')
+                            ui.html(f'<a href="{link_gacetilla_rss}" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-600 font-bold hover:underline flex items-center gap-1">🔗 Ver búsqueda en Google News ↗</a>')
+                        else:
+                            ui.label('Sin gacetilla activa').classes('text-xs font-semibold text-gray-400 italic')
 
             for sec in config['secciones']:
                 if sec.get('es_separador', False): continue
@@ -1757,7 +2674,12 @@ async def index():
             ui.separator().classes('my-6')
             
             state.timer_label = ui.label('⏱️ Tiempo transcurrido: 00:00').classes('font-bold text-gray-700 mb-2 hidden')
-            state.log_container = ui.log(max_lines=30).classes('w-full h-48 bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm hidden')
+            
+            # Chip de estado corregido con alto contraste y visibilidad perfecta
+            state.status_chip = ui.chip('📍 Esperando inicio...', icon='radar').props('color=dark text-color=white').classes('bg-[#0F172A] text-white font-bold mb-3 shadow-md hidden')
+            
+            state.log_box = ui.column().classes('w-full hidden')
+            state.log_container = MonitorConsola(state.log_box)
 
             ui.button('🚀 PROCESAR REPORTE', on_click=lambda: procesar_reporte()).classes('w-full py-4 text-lg font-bold shadow-lg rounded-xl mt-4').style(f'background-color: {color}; color: white;')
 

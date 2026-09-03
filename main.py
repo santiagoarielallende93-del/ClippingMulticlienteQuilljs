@@ -27,7 +27,7 @@ import requests
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "5.2"
+APP_VERSION = "5.3"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 
@@ -71,22 +71,37 @@ def es_tier_1_o_2(tier_val):
         pass
     return False
 
+def parse_fecha_sortable(texto_fecha):
+    """Convierte una cadena de fecha DD/MM/YYYY o YYYY-MM-DD a timestamp numérico para ordenamiento."""
+    if not texto_fecha: return 0
+    t_str = str(texto_fecha).strip()
+    try:
+        dt = datetime.datetime.strptime(t_str, "%d/%m/%Y")
+        return dt.timestamp()
+    except Exception:
+        try:
+            dt = datetime.datetime.strptime(t_str, "%Y-%m-%d")
+            return dt.timestamp()
+        except Exception:
+            return 0
+
 # ====================================================================
-# GESTIÓN DE HISTORIAL ANTIDUPLICADOS (EXCEL Y JSON)
+# GESTIÓN DE HISTORIAL ANTIDUPLICADOS POR CLIENTE (EXCEL Y JSON)
 # ====================================================================
-def cargar_historial_global():
+def cargar_historial_cliente(cliente_nombre):
     """
-    Carga todos los enlaces (URLs) de notas publicadas en entregas anteriores.
-    Busca tanto en 'historial_notas.xlsx' como en 'historial_notas.json'.
-    Esto garantiza que ninguna nota previamente procesada vuelva a repetirse.
+    Carga únicamente los enlaces (URLs) de notas publicadas en entregas anteriores
+    CORRESPONDIENTES AL CLIENTE ESPECÍFICO.
+    Evita que notas de un cliente (ej. Mars) bloqueen las del otro (ej. MSD).
     """
     links_historial = set()
+    sheet_name = cliente_nombre[:30]
 
-    # 1. Cargar desde Excel (historial_notas.xlsx)
+    # 1. Cargar desde Excel (historial_notas.xlsx) solo la hoja del cliente actual
     if os.path.exists(HISTORIAL_EXCEL):
         try:
             xls = pd.ExcelFile(HISTORIAL_EXCEL)
-            for sheet_name in xls.sheet_names:
+            if sheet_name in xls.sheet_names:
                 df = pd.read_excel(xls, sheet_name=sheet_name)
                 for col in df.columns:
                     for val in df[col].dropna():
@@ -94,14 +109,17 @@ def cargar_historial_global():
                         if v_str.startswith("http"):
                             links_historial.add(v_str)
         except Exception as e:
-            print(f"⚠️ Error al leer historial Excel: {e}")
+            print(f"⚠️ Error al leer historial Excel para {cliente_nombre}: {e}")
 
-    # 2. Cargar desde JSON respaldo (historial_notas.json)
+    # 2. Cargar desde JSON respaldo (historial_notas.json) filtrado por cliente
     if os.path.exists(HISTORIAL_JSON):
         try:
             with open(HISTORIAL_JSON, "r", encoding="utf-8") as f:
-                json_links = set(json.load(f))
-                links_historial.update(json_links)
+                data_json = json.load(f)
+                if isinstance(data_json, dict):
+                    client_links = data_json.get(cliente_nombre, [])
+                    for l in client_links:
+                        links_historial.add(str(l).strip().lower())
         except Exception as e:
             print(f"⚠️ Error al leer historial JSON: {e}")
 
@@ -114,7 +132,7 @@ def guardar_en_historial_excel(cliente_nombre, data_auditoria):
       - Una pestaña (hoja) por cada Cliente.
       - Columnas: Nombre de cada Sección.
       - Filas: Enlaces redirigidos/limpios (URLs finales de los medios, NO news.google).
-    También actualiza 'historial_notas.json' con los links originales (news.google) para deduplicación rápida.
+    También actualiza 'historial_notas.json' separado por cliente.
     """
     try:
         sheets_dict = {}
@@ -165,10 +183,23 @@ def guardar_en_historial_excel(cliente_nombre, data_auditoria):
             for s_name, df_sheet in sheets_dict.items():
                 df_sheet.to_excel(writer, sheet_name=s_name, index=False)
 
-        historial_json = cargar_historial_global()
-        historial_json.update(nuevos_links_json)
+        # Actualizar JSON indexado por nombre de cliente
+        data_json = {}
+        if os.path.exists(HISTORIAL_JSON):
+            try:
+                with open(HISTORIAL_JSON, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        data_json = loaded
+            except Exception:
+                data_json = {}
+
+        client_set = set(data_json.get(cliente_nombre, []))
+        client_set.update(nuevos_links_json)
+        data_json[cliente_nombre] = list(client_set)
+
         with open(HISTORIAL_JSON, "w", encoding="utf-8") as f:
-            json.dump(list(historial_json), f, ensure_ascii=False, indent=2)
+            json.dump(data_json, f, ensure_ascii=False, indent=2)
 
     except Exception as e:
         print(f"⚠️ Error al guardar en historial Excel: {e}")
@@ -198,12 +229,11 @@ def extraer_gacetilla_mas_reciente(df_gacetillas, cliente_nombre):
                 if texto and texto.lower() != 'nan':
                     return texto
         
-        # Búsqueda si los nombres de los clientes son encabezados de columna
         col_cli_direct = next((orig for k, orig in cols.items() if remover_acentos(str(cliente_nombre).lower()) in k or k in remover_acentos(str(cliente_nombre).lower())), None)
         if col_cli_direct:
             vals = [str(v).strip() for v in df_gacetillas[col_cli_direct].dropna().tolist() if str(v).strip() and str(v).lower() != 'nan']
             if vals:
-                return vals[-1] # La última fila contiene la gacetilla más reciente
+                return vals[-1]
     except Exception as e:
         print(f"Error parseando gacetillas: {e}")
         
@@ -756,8 +786,14 @@ def buscar_metricas_medio(df_medios, url, medio_nombre):
     return alcance, tier, ad_value
 
 def sort_key_final(n, sec_id):
+    """
+    Criterio de ordenamiento:
+      1. Notas Gráficas SIEMPRE primeras (es_grafica = 0).
+      2. Mismo Medio: Orden descendente por fecha (más recientes primero: -ts_fecha).
+    """
     es_grafica = 0 if n['tipo_medio'] == 'Gráfica' else 1
     medio_lower = str(n['medio']).lower()
+    ts_fecha = parse_fecha_sortable(n.get('fecha', ''))
     
     # mars_competencia NO ordena por métricas, se ordena alfabéticamente
     if sec_id in IDS_SINTESIS and sec_id != 'mars_competencia':
@@ -785,9 +821,9 @@ def sort_key_final(n, sec_id):
         elif is_social: cat = 2
         else: cat = 3
             
-        return (cat, tier_val, -alcance_val, medio_lower)
+        return (cat, tier_val, -alcance_val, medio_lower, -ts_fecha)
     else:
-        return (es_grafica, medio_lower)
+        return (es_grafica, medio_lower, -ts_fecha)
 
 def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, historial_previo, solo_manuales=False):
     items = []
@@ -822,7 +858,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
 
         # VERIFICACIÓN EN HISTORIAL PREVIO (GRÁFICA)
         if link_norm and link_norm in historial_previo:
-            logger(f"    📜 EXCLUIDA [Gráfica] por historial anterior: {m_limpio[:20]} - {ng['titulo'][:30]}...")
+            logger(f"    📜 EXCLUIDA [Gráfica] por historial anterior del cliente: {m_limpio[:20]} - {ng['titulo'][:30]}...")
             if es_tier_1_o_2(tier):
                 evaluaciones_auditoria.append({
                     "medio": m_limpio, "titulo": ng['titulo'], "link": ng['link'],
@@ -879,9 +915,9 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             "bajada_real": desc_rss, "oracion_clave": desc_rss, "resumen_rss": desc_rss, "origen": origen
         }
 
-        # VERIFICACIÓN EN HISTORIAL PREVIO (ONLINE)
+        # VERIFICACIÓN EN HISTORIAL PREVIO DEL CLIENTE (ONLINE)
         if link_norm and link_norm in historial_previo:
-            logger(f"    📜 EXCLUIDA por historial anterior: {medio[:20]} - {titulo[:30]}...")
+            logger(f"    📜 EXCLUIDA por historial anterior del cliente: {medio[:20]} - {titulo[:30]}...")
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
             if es_tier_1_o_2(tier_test):
                 evaluaciones_auditoria.append({
@@ -961,7 +997,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             page.goto(link_orig, timeout=15000, wait_until="domcontentloaded")
             page.wait_for_timeout(1200)
             if page.url:
-                link_destino = page.url  # URL final redirigida para el Excel
+                link_destino = page.url
             
             try:
                 page.evaluate('''
@@ -1122,10 +1158,10 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     data_editor = []
     data_auditoria = []
     links_sumados_global = set()
-    historial_previo = cargar_historial_global()
+    historial_previo = cargar_historial_cliente(cliente_nombre)
 
     if historial_previo:
-        logger(f"📜 Se cargaron {len(historial_previo)} notas registradas en el historial antiduplicados.")
+        logger(f"📜 Se cargaron {len(historial_previo)} notas registradas en el historial antiduplicados exclusivo para '{cliente_nombre}'.")
 
     if solo_banners:
         logger("⚡ Modo Dios: Prueba Rápida activada (Generando únicamente banners vacíos)...")
@@ -1568,7 +1604,6 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         .drag-handle { cursor: grab; color: #94a3b8; font-size: 18px; padding: 0 6px; user-select: none; }
         .drag-handle:active { cursor: grabbing; }
 
-        /* REGLAS CSS PARA QUITAR LA DEFORMACIÓN DEL BLOQUE DE NOTA AL EDITAR EN QUILL */
         .ql-container.ql-snow { border: none !important; font-family: 'Tahoma', sans-serif !important; }
         .ql-editor { font-family: 'Tahoma', sans-serif !important; padding: 4px 0 !important; line-height: 1.5 !important; }
         .ql-editor p { font-family: 'Tahoma', sans-serif !important; line-height: 1.5 !important; margin: 0 0 6px 0 !important; color: #000000 !important; }
@@ -1791,7 +1826,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 
             let texto_completo = textos_notas.join("\n").substring(0, 2500);
             
-            let prompt = `Redacta un resumen de los siguientes textos en un único párrafo fluido de máximo 2 oraciones.\n\nReglas estrictas obligatorias:\n1. NO menciones ningún sitio web, portal ni medio de comunicación.\n2. NO copies ni menciones títulos de noticias.\n3. Escribe un párrafo de lectura natural (no uses listas, ni viñetas, ni guiones).\n4. Responde ÚNICAMENTE con el texto del resumen final, sin introducciones ni comentarios extra.\n\nTextos a resumir:\n${texto_completo}`;
+            let prompt = `Redacta un resumen de los siguientes textos en un único párrafo fluido de máximo 2 oraciones.\n\nReglas strictly obligatorias:\n1. NO menciones ningún sitio web, portal ni medio de comunicación.\n2. NO copies ni menciones títulos de noticias.\n3. Escribe un párrafo de lectura natural (no uses listas, ni viñetas, ni guiones).\n4. Responde ÚNICAMENTE con el texto del resumen final, sin introducciones ni comentarios extra.\n\nTextos a resumir:\n${texto_completo}`;
 
             btnElement.innerHTML = '⏳ Generando...';
             btnElement.disabled = true;
@@ -1850,7 +1885,6 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 
             const sintesisOculta = estado.length > 0 && estado[0]._ocultar_sintesis === true;
             
-            // Botón en sidebar para restaurar síntesis si está oculta
             const btnContainer = document.getElementById('btn-restaurar-sintesis-container');
             if (btnContainer) {
                 if (sintesisOculta) {
@@ -1927,7 +1961,6 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             }
 
             estado.forEach((sec, secIdx) => {
-                // RENDERIZADO ESPECIAL PARA BANNERS SEPARADORES EN EL EDITOR
                 if (sec.es_separador) {
                     const secDiv = document.createElement('div'); 
                     secDiv.className = 'seccion';
@@ -2345,7 +2378,6 @@ async def index():
 
             dialog.open()
 
-            # CONTENEDOR PERSISTENTE AFUERA DE LA FUNCIÓN REFRESHABLE PARA MANTENER POSICIÓN DE SCROLL
             scroll_container = ui.scroll_area().classes('w-full h-[550px] pr-2').props('id=review-scroll-area')
 
             with scroll_container:
@@ -2363,7 +2395,6 @@ async def index():
                                 ui.label("Sin notas procesadas en esta sección.").classes('text-xs text-slate-400 italic')
                                 continue
 
-                            # ORDENAR PRIORITARIO: SUMADAS primero (0), luego EXCLUIDAS ordenadas por su motivo/variable (1) y orden alfabético
                             evals_ordenadas = sorted(
                                 evals,
                                 key=lambda e: (
@@ -2381,7 +2412,6 @@ async def index():
                                     
                                     with ui.row().classes(f'w-full items-center justify-between p-3 rounded-lg border {bg_color} text-xs'):
                                         with ui.column().classes('w-[72%] gap-1'):
-                                            # Renglón superior: Medio + Chip de Estado + Motivo de exclusión al costado
                                             with ui.row().classes('items-center gap-2 flex-wrap'):
                                                 ui.label(ev['medio']).classes('font-bold text-slate-800 text-sm')
                                                 
@@ -2390,7 +2420,6 @@ async def index():
                                                 if es_sumada:
                                                     if es_manual:
                                                         ui.chip('MANUAL', color='emerald-2', text_color='emerald-9').classes('text-[10px] font-bold py-0 h-5')
-                                                    # Si es sumada automática, NO muestra ningún cartel/chip
                                                 elif ev.get('es_ia'):
                                                     ui.chip('IA', color='purple-2', text_color='purple-9').classes('text-[10px] font-bold py-0 h-5')
                                                     ui.label(f"Motivo: {ev['motivo']}").classes('text-xs text-purple-900 font-bold italic bg-purple-100/80 px-2 py-0.5 rounded')
@@ -2399,14 +2428,11 @@ async def index():
                                                     ui.chip(est_clean, color='rose-2', text_color='rose-9').classes('text-[10px] font-bold py-0 h-5')
                                                     ui.label(f"Motivo: {ev['motivo']}").classes('text-xs text-rose-900 font-bold italic bg-rose-100/80 px-2 py-0.5 rounded')
                                             
-                                            # Renglón inferior: Título e hipervínculo
                                             ui.html(f'<a href="{ev["link"]}" target="_blank" rel="noopener noreferrer" class="text-sky-600 font-semibold underline text-xs">{ev["titulo"]}</a>')
                                             
-                                            # Muestra de la fuente de extracción en gris cursiva para notas excluidas
                                             if not es_sumada and ev.get('origen_fuente'):
                                                 ui.label(f"Fuente: {ev.get('origen_fuente')}").classes('text-slate-500 italic text-[11px] font-normal mt-0.5')
 
-                                        # Acciones interactivas con preservación exacta de la posición de scroll
                                         async def toggle_nota(ev_ref=ev, s_edit=sec_editor, sec_ref=sec):
                                             scroll_pos = 0
                                             try:
@@ -2426,16 +2452,18 @@ async def index():
                                                 ev_ref['estado'] = 'SUMADA'
                                                 ev_ref['motivo'] = 'Sumada manualmente en revisión'
 
-                                            # Reordenar evaluaciones
                                             sumadas = [e for e in sec_ref['evaluaciones'] if e['estado'] == 'SUMADA']
                                             excluidas = [e for e in sec_ref['evaluaciones'] if e['estado'] != 'SUMADA']
 
-                                            sumadas.sort(key=lambda e: (remover_acentos(str(e.get('medio', '')).lower()), remover_acentos(str(e.get('titulo', '')).lower())))
+                                            sumadas.sort(key=lambda e: (
+                                                0 if e.get('bloque_data', {}).get('tipo_medio') == 'Gráfica' else 1,
+                                                remover_acentos(str(e.get('medio', '')).lower()),
+                                                -parse_fecha_sortable(str(e.get('bloque_data', {}).get('fecha', '')))
+                                            ))
                                             excluidas.sort(key=lambda e: (str(e.get('estado', '')), remover_acentos(str(e.get('medio', '')).lower()), remover_acentos(str(e.get('titulo', '')).lower())))
 
                                             sec_ref['evaluaciones'] = sumadas + excluidas
 
-                                            # Reconstruir notas en el editor
                                             if s_edit:
                                                 s_edit['notas'] = []
                                                 cfg = CLIENTES_CONFIG[state.cliente]
@@ -2480,15 +2508,12 @@ async def index():
                 fecha_hoy = datetime.datetime.now().strftime("%d-%m-%y")
                 config = CLIENTES_CONFIG[state.cliente]
                 
-                # GUARDAR EN HISTORIAL EXCEL Y JSON LAS NOTAS CONFIRMADAS
                 guardar_en_historial_excel(state.cliente, data_auditoria)
 
-                # 1. Editor Quill HTML
                 html_resultado = generar_html_editor(config["banner_principal_url"], data_editor, config["color_primario"], state.cliente)
                 nombre_archivo_editor = f'Clipping {state.cliente} {fecha_hoy}.html'
                 ui.download(html_resultado.encode('utf-8'), nombre_archivo_editor)
                 
-                # 2. Auditoría HTML
                 html_auditoria = generar_html_auditoria(state.cliente, state.timeframe, data_auditoria, config["color_primario"])
                 nombre_archivo_auditoria = f'Auditoria Clipping {state.cliente} {fecha_hoy}.html'
                 ui.download(html_auditoria.encode('utf-8'), nombre_archivo_auditoria)
@@ -2575,7 +2600,6 @@ async def index():
             state.last_data_editor = data_editor
             state.last_data_auditoria = data_auditoria
 
-            # Abrir diálogo interactivo de revisión en pantalla
             mostrar_pantalla_revision(data_editor, data_auditoria)
             
         except Exception as e:
@@ -2675,7 +2699,6 @@ async def index():
             
             state.timer_label = ui.label('⏱️ Tiempo transcurrido: 00:00').classes('font-bold text-gray-700 mb-2 hidden')
             
-            # Chip de estado corregido con alto contraste y visibilidad perfecta
             state.status_chip = ui.chip('📍 Esperando inicio...', icon='radar').props('color=dark text-color=white').classes('bg-[#0F172A] text-white font-bold mb-3 shadow-md hidden')
             
             state.log_box = ui.column().classes('w-full hidden')

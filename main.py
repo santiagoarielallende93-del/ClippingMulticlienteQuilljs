@@ -30,7 +30,7 @@ import requests
 APP_VERSION = "5.4"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
-GROQ_API_KEY = "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" 
+GROQ_API_KEY = "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" 
 USAR_FILTRO_IA = True  # Desactivable globalmente si se requiere
 LINK_EXCEL_DRIVE = "https://docs.google.com/spreadsheets/d/1ZntitgSKrfkaL5rpG45ajwbr0yPVvfAp/edit?usp=sharing&ouid=110785507732300006515&rtpof=true&sd=true"
 

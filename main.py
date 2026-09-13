@@ -402,7 +402,7 @@ CLIENTES_CONFIG = {
             "keywords": ["Mars", "South", "Latam", "Mars South Latam", "Romina Ferreyra", "Mattia Iannone", "Whiskas", "Pedigree"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
             { "id": "mars_tema_2", "nombre": "Pet Nutrition", "nombre_largo": "Pet Nutrition", "img_local": "banners/mars_petnutrition.jpg", "img_url": "https://drive.google.com/file/d/1gayVCjqbhHsrPvm6XqO4jWFifqixT0gh/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Pet%20Nutrition%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pedigree", "Whiskas", "Mars Pet Nutrition", "Guadalupe Perez Torelli", "Mars Petcare"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
             { "id": "mars_tema_3", "nombre": "Snacking", "nombre_largo": "Snacking", "img_local": "banners/mars_snacking.jpg", "img_url": "https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Snacking%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mars", "Snacking", "Mars Snacking"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
-            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Nestl%C3%A9%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Wouu%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Alican%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Eukanuba%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Purina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Metrive%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Sieger%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Nestlé", "Alican", "Wouu", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires"], "exclusiones": ["peru retail", "peru-retail", "mexico", "chile", "colombia"], "limite": 20 },
+            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Nestl%C3%A9%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Alican%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Eukanuba%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Purina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Metrive%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Sieger%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires"], "exclusiones": ["peru retail", "peru-retail", "mexico", "chile", "colombia"], "limite": 20 },
             { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", ], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru"], "limite": 20 }
         ]
     },
@@ -542,7 +542,7 @@ class AppState:
 state = AppState()
 
 # ====================================================================
-# CARGA Y SINCRONIZACIÓN DE EXCEL (MÉTRICAS, FEEDS Y GACETILLAS)
+# CARGA Y SINCRONIZACIÓN DE EXCEL (MÉTRICAS, FEEDS, GACETILLAS Y FEEDS GLOBALES)
 # ====================================================================
 def sincronizar_base_medios(cliente_nombre, logger):
     global GACETILLAS_CACHE
@@ -550,6 +550,7 @@ def sincronizar_base_medios(cliente_nombre, logger):
     df_medios = None
     df_feeds = None
     df_gacetillas = None
+    df_feeds_globales = None
     try:
         match = re.search(r'/d/([a-zA-Z0-9-_]+)', LINK_EXCEL_DRIVE)
         if match:
@@ -574,11 +575,17 @@ def sincronizar_base_medios(cliente_nombre, logger):
                 df_gacetillas = pd.read_excel(xls_cargado, sheet_name=hoja_gacetillas)
                 GACETILLAS_CACHE = df_gacetillas
                 logger(f"✅ Hoja de Gacetillas ('{hoja_gacetillas}') cargada correctamente.")
+
+            # Cargar hoja "FEEDS GLOBALES"
+            hoja_globales = next((s for s in xls_cargado.sheet_names if "feeds globales" in remover_acentos(s.lower()) or "feed global" in remover_acentos(s.lower()) or "globales" in remover_acentos(s.lower())), None)
+            if hoja_globales:
+                df_feeds_globales = pd.read_excel(xls_cargado, sheet_name=hoja_globales)
+                logger(f"✅ Hoja de Feeds Globales ('{hoja_globales}') cargada correctamente.")
                 
             logger("✅ Base de Medios sincronizada correctamente.")
     except Exception as e:
         logger(f"⚠️ No se pudo descargar la Base de Medios: {e}")
-    return df_medios, df_feeds, df_gacetillas
+    return df_medios, df_feeds, df_gacetillas, df_feeds_globales
 
 def extraer_todos_rss_excel(df_feeds):
     """Extrae todos los enlaces RSS/URL presentes en la pestaña del cliente dentro del Excel."""
@@ -590,6 +597,18 @@ def extraer_todos_rss_excel(df_feeds):
             v_str = str(val).strip()
             if v_str.startswith("http"):
                 urls_encontradas.append(v_str)
+    return list(dict.fromkeys(urls_encontradas))
+
+def extraer_feeds_globales(df_globales):
+    """Extrae los feeds RSS/URL de la primera columna de la hoja FEEDS GLOBALES."""
+    if df_globales is None or df_globales.empty:
+        return []
+    urls_encontradas = []
+    primer_col = df_globales.columns[0]
+    for val in df_globales[primer_col].dropna():
+        v_str = str(val).strip()
+        if v_str.startswith("http"):
+            urls_encontradas.append(v_str)
     return list(dict.fromkeys(urls_encontradas))
 
 # ====================================================================
@@ -1175,7 +1194,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
             data_auditoria.append({"id": sec['id'], "nombre": sec['nombre_largo'], "evaluaciones": []})
         return data_editor, data_auditoria
 
-    df_medios, df_feeds, df_gacetillas = sincronizar_base_medios(cliente_nombre, logger)
+    df_medios, df_feeds, df_gacetillas, df_feeds_globales = sincronizar_base_medios(cliente_nombre, logger)
     
     items_rss_por_seccion = {sec['id']: [] for sec in estructura if not sec.get('es_separador')}
     
@@ -1227,11 +1246,15 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
             except Exception as e:
                 logger(f"  ⚠️ Error al consultar Búsqueda Extra ({q_texto}): {e}")
 
-    # 3. FEEDS DEL EXCEL
-    if df_feeds is not None and not df_feeds.empty and not solo_manuales:
-        rss_excel_todos = extraer_todos_rss_excel(df_feeds)
+    # 3. FEEDS DEL EXCEL (Nicho del cliente + Feeds Globales)
+    if not solo_manuales:
+        rss_excel_nicho = extraer_todos_rss_excel(df_feeds) if df_feeds is not None and not df_feeds.empty else []
+        rss_excel_globales = extraer_feeds_globales(df_feeds_globales) if df_feeds_globales is not None and not df_feeds_globales.empty else []
+        
+        rss_excel_todos = list(dict.fromkeys(rss_excel_nicho + rss_excel_globales))
+
         if rss_excel_todos:
-            logger(f"📊 Analizando {len(rss_excel_todos)} fuentes de Excel para clasificar notas por sección...")
+            logger(f"📊 Analizando {len(rss_excel_todos)} fuentes de Excel (Nicho + Feeds Globales) para clasificar notas por sección...")
             for url_feed in rss_excel_todos:
                 url_ajustada = url_feed.replace("when:1d", f"when:{timeframe_google}").replace("when%3A1d", f"when%3A{timeframe_google}")
                 try:

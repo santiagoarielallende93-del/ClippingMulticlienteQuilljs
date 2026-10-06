@@ -47,7 +47,7 @@ SITIOS_COM_ARGENTINOS = [
 ]
 
 # Si el sitio no es .ar ni está en la lista, se acepta solo si el texto habla de Argentina (agregar/quitar a gusto)
-KW_ARGENTINA = ["argentina", "argentino", "argentinos", "argentinas", "anmat", "buenos aires", "pami",
+KW_ARGENTINA = ["argentina", "argentino", "argentinos", "argentinas", "anmat", "buenos aires",
                 "conicet", "milei", "ministerio de salud de la nacion", "superintendencia de servicios de salud",
                 "obras sociales", "sistema de salud argentino"]
 
@@ -255,7 +255,7 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=belatacept+OR+Nulojix+OR+daclatasvir+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=Daklinza+OR+entecavir+OR+Baraclude+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
             ], 
-            "keywords": ["Bristol", "Bristol-Myers", "Bristol Myers", "Bristol Myers Squibb", "Bristol-Myers Squibb", "BMS", "opdivo", "nivolumab", "Sotyktu", "deucravacitinib", "mavacamten", "Camzyos", "abatacept", "Orencia", "belatacept", "Nulojix", "daclatasvir", "Daklinza", "daclatasvir", "Daklinza", "entecavir", "Baraclude"], "exclusiones": [], "limite": 20 },
+            "keywords": ["Bristol", "Bristol-Myers", "Bristol Myers", "Bristol Myers Squibb", "Bristol-Myers Squibb", "BMS", "opdivo", "nivolumab", "Sotyktu", "deucravacitinib", "mavacamten", "Camzyos", "abatacept", "Orencia", "belatacept", "Nulojix", "daclatasvir", "Daklinza", "daclatasvir", "Daklinza", "entecavir", "Baraclude"], "exclusiones": ["parkinson"], "limite": 20 },
             { "id": "bms_tema_2", "nombre": "Noticias del Sector", "nombre_largo": "Noticias del Sector", "img_local": "banners/bms_noticiasdelsector.jpg", "img_url": "https://drive.google.com/file/d/1FhuuaWsEr2ywBp_QzKGuvwZOm1W6gekK/view", "rss": [
             "https://news.google.com/rss/search?q=AR%20CILFA%20OR%20ANEFITS%20OR%20Medicamentos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
             "https://news.google.com/rss/search?q=AR%20%22Obras%20sociales%22%20OR%20%22Mario%20Lugones%22%20OR%20%22Ministerio%20de%20Salud%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
@@ -263,13 +263,13 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=AR%20%22Laboratorios%20farmac%C3%A9uticos%22%20OR%20%22IA%20Salud%22%20OR%20%22I%2BD%20farmac%C3%A9utica%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
             "https://news.google.com/rss/search?q=Gen%C3%A9ricos%20OR%20UIA%20OR%20CAEME%20OR%20%22Sistema%20de%20salud%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419" #global
             ],
-            "keywords": ["CILFA", "ANEFITS", "medicamentos", "obras sociales", "Mario Lugones", "Ministerio de Salud", "prepagas", "farma", "farmacéuticas", "laboratorios farmacéuticos", "IA", "I+D farmacéutica", "genéricos", "UIA", "CAEME", "sistema de salud"], "exclusiones": [], "limite": 15,
+            "keywords": ["CILFA", "ANEFITS", "medicamentos", "obras sociales", "Mario Lugones", "Ministerio de Salud", "prepagas", "farma", "farmacéuticas", "farmacéuticos", "laboratorios farmacéuticos", "IA", "I+D farmacéutica", "genéricos", "UIA", "CAEME", "sistema de salud"], "exclusiones": ["PAMI"], "limite": 15,
             "contexto_ia": "El interés es sobre notas relacionadas a las keywords que se encuentran enlistadas. REGLA ESTRICTA: La nota debe tratar sobre el sector salud/farmacéutico nacional. Rechazar policiales aislados, accidentes o casos clínicos individuales." },
             { "id": "bms_tema_3", "nombre": "Propiedad Intelectual / Biosimilares", "nombre_largo": "Propiedad Intelectual / Biosmilares", "img_local": "banners/bms_propiedadintelectualbiosimilares.jpg", "img_url": "https://drive.google.com/file/d/12A4oDRQ7BlmY_zop1a0ThahV1JOFQ8vk/view", 
             "rss": [
             "https://news.google.com/rss/search?q=Biosimilares+OR+Patentes+OR+PCT+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
             ], 
-            "keywords": ["biosimilares", "medicamentos", "patentes", "farmacéuticas", "PCT"], "exclusiones": ["autos"], "limite": 10 },
+            "keywords": ["biosimilares", "medicamentos", "patentes", "farmacéuticas", "PCT"], "exclusiones": ["autos", "parkinson"], "limite": 10 },
             { "id": "bms_tema_4", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/bms_competencia.jpg", "img_url": "https://drive.google.com/file/d/1rZfcOHZGfwsk40-L8Ti0fIlp6z6spM9G/view", 
             "rss": [ #mayoria de busquedas en AR
             "https://news.google.com/rss/search?q=Elea+OR+%22Laboratorio+Bag%C3%B3%22+OR+Bayer+-Leverkusen+-futbol+-champions+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
@@ -281,10 +281,11 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=Casasco+OR+Baliarda+OR+Montpellier+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=Raffo+OR+Bernab%C3%B3+OR+Andr%C3%B3maco+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=Biosidus+OR+Richmond+OR+Temis+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
-            "https://news.google.com/rss/search?q=Lostal%C3%B3+OR+Craveri+OR+Finadiet+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
+            "https://news.google.com/rss/search?q=Lostal%C3%B3+OR+Craveri+OR+Finadiet+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=AR%20Abbvie%20OR%20Genmab%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             ], 
-            "keywords": ["Elea", "Laboratorio Bagó", "Bayer", "Pfizer", "Sanofi", "Novartis", "Roche", "AstraZeneca", "GSK", "Novo Nordisk", "Boehringer Ingelheim", "Teva", "Merck", "MSD", "Abbott", "Takeda", "Eli Lilly", "Roemmers", "Gador", "Baliarda", "Montpellier", "Raffo", "Bernabó", "Andrómaco", "Biosidus", "Richmond", "Temis", "Lostaló", "Craveri", "Finadiet"], 
-            "exclusiones": ["Bayer Leverkusen", "Bayern", "fútbol", "futbol", "champions", "bundesliga", "goles", "jugador", "partido", "Xabi Alonso"], "limite": 10,
+            "keywords": ["Elea", "Laboratorios Bagó", "Laboratorios Bago", "Bayer", "Pfizer", "Sanofi", "Novartis", "Roche", "AstraZeneca", "GSK", "Novo Nordisk", "Boehringer Ingelheim", "Teva", "Merck", "MSD", "Abbott", "Takeda", "Eli Lilly", "Roemmers", "Gador", "Baliarda", "Montpellier", "Raffo", "Bernabó", "Andrómaco", "Biosidus", "Richmond", "Laboratorios Richmond" "Temis", "Lostaló", "Craveri", "Finadiet", "AbbVie", "Genmab"], 
+            "exclusiones": ["Bayer Leverkusen", "Bayern", "fútbol", "futbol", "champions", "bundesliga", "goles", "jugador", "partido", "Xabi Alonso", "agri", "agricola", "cultivos", "agricultura", "semillas", "parkinson"], "limite": 10,
             "contexto_ia": "El interés es sobre los laboratorios listados. REGLA ESTRICTA: Las noticias deben estar focalizadas en noticias en las que se hable sobre algun laboratorio enlistado, ya sean medicamentos, vacunas, campañas o pases corporativos. Rechazar noticias de filiales, inversiones o lanzamientos exclusivos en otros países (ej. España, México, Europa, EEUU)." },
             { "id": "bms_tema_5", "nombre": "Areas Terapeuticas", "nombre_largo": "Áreas Terapéuticas", "img_local": "banners/bms_areasterapeuticas.jpg", "img_url": "https://drive.google.com/file/d/1HXv0m__Xixd0NgE607eAWrVXFT73Xdy2/view", "es_separador": True, "rss": [], "keywords": [], "exclusiones": [], "limite": 0 },
             { "id": "bms_tema_6", "nombre": "Onco-Hematologia", "nombre_largo": "Onco-Hematologia", "img_local": "banners/bms_oncohematologia.jpg", "img_url": "https://drive.google.com/file/d/1o8SGZMYZSZSsxqcYCZKPEhwWAh9T8sVx/view", 
@@ -293,13 +294,13 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=AR%20Linfoma%20OR%20Tumor%20OR%20%22Octubre%20Rosa%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=AR%20Lalcec%20OR%20FUCA%20OR%20Macma%20OR%20AAOC%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
             ],
-            "keywords": ["cáncer", "cancer", "metástasis", "metastasis", "tumores", "tumor", "melanoma", "linfoma", "oncología", "linfoma", "octubre rosa", "lalcec", "Lalcec", "FUCA", "Macma", "AAOC"], "exclusiones": [], "limite": 10,
+            "keywords": ["cáncer", "cancer", "cáncer de mama", "metástasis", "metastasis", "tumores", "tumor", "melanoma", "linfoma", "oncología", "linfoma", "octubre rosa", "lalcec", "Lalcec", "FUCA", "Macma", "AAOC"], "exclusiones": ["parkinson"], "limite": 10,
             "contexto_ia": "El interés es sobre avances médicos, tratamientos, tumores, linfomas y campañas de prevención del cáncer. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico, DEBE SER APROBADA. Solo rechazar si la noticia trata de regulaciones, sistemas de salud o estadísticas exclusivas de otros países (ej. hospitales de España)." },
             { "id": "bms_tema_7", "nombre": "CAR-T", "nombre_largo": "CAR-T", "img_local": "banners/bms_cart.jpg", "img_url": "https://drive.google.com/file/d/1B6Rt1GJRhH2opmm9vnmTaLrRu8vVS0dW/view", 
             "rss": [
             "https://news.google.com/rss/search?q=CAR-T+OR+%22terapia+g%C3%A9nica%22+OR+inmunoterapia+OR+linfocitos+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
             ], 
-            "keywords": ["CAR-T", "CAR T", "inmunoterapia", "terapia génica", "linfocitos T", "células cancerosas"], "exclusiones": [], "limite": 10 },
+            "keywords": ["CAR-T", "CAR T", "inmunoterapia", "terapia génica", "linfocitos T", "células cancerosas"], "exclusiones": ["parkinson"], "limite": 10 },
             { "id": "bms_tema_8", "nombre": "Cardiología", "nombre_largo": "Cardiología", "img_local": "banners/bms_cardiologia.jpg", "img_url": "https://drive.google.com/file/d/1JtpFFXjYVcr-4nCyE_XaxLtfmobCp2_M/view", 
             "rss": [
             "https://news.google.com/rss/search?q=AR%20Cardiovascular%20OR%20Cardiolog%C3%ADa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
@@ -316,20 +317,20 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=Reumatolog%C3%ADa+OR+%22Salud+articular%22+OR+Articulaciones+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=Osteoartritis+OR+Espondiloartritis+OR+%22Artritis+reactiva%22+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
             ], 
-            "keywords": ["artritis", "articulaciones", "enfermedades reumáticas", "enfermedad reumática", "reuma", "artrotis", "reumatología", "salud articular", "enfermedades articulares", "dolor articular", "inflamación articular", "artritis reumatoide", "artritis psoriásica", "osteoartritis", "artritis idiopática juvenil", "espondiloartritis", "artritis reactiva", "gota"], "exclusiones": [], "limite": 10,
+            "keywords": ["artritis", "articulaciones", "enfermedades reumáticas", "enfermedad reumática", "reuma", "artrotis", "reumatología", "salud articular", "enfermedades articulares", "dolor articular", "inflamación articular", "artritis reumatoide", "artritis psoriásica", "osteoartritis", "artritis idiopática juvenil", "espondiloartritis", "artritis reactiva", "gota"], "exclusiones": ["parkinson"], "limite": 10,
             "contexto_ia": "El interés es sobre artritis, artrosis, enfermedades reumáticas y prevención. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico, DEBE SER APROBADA. Solo rechazar si la noticia trata de regulaciones, sistemas de salud o estadísticas exclusivas de otros países." },
             { "id": "bms_tema_10", "nombre": "Psoriasis", "nombre_largo": "Psoriasis", "img_local": "banners/bms_psoriasis.jpg", "img_url": "https://drive.google.com/file/d/1VEZeFSymEKe5vHrNKLD08419502G_nqH/view", 
             "rss": [
             "https://news.google.com/rss/search?q=psoriasis+OR+%22Enfermedad+psori%C3%A1sica%22+OR+%22Salud+de+la+piel%22+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
             ], 
-            "keywords": ["psoriasis", "enfermedad psoriásica", "psoriasis crónica", "salud de la piel"], "exclusiones": [], "limite": 10,
+            "keywords": ["psoriasis", "enfermedad psoriásica", "psoriasis crónica", "salud de la piel"], "exclusiones": ["parkinson"], "limite": 10,
             "contexto_ia": "El interés es sobre psoriasis, enfermedades psoriásicas y tratamientos. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico, DEBE SER APROBADA. Solo rechazar si la noticia trata de regulaciones, sistemas de salud o estadísticas exclusivas de otros países." },
             { "id": "bms_tema_11", "nombre": "Trasplante", "nombre_largo": "Trasplante", "img_local": "banners/bms_trasplante.jpg", "img_url": "https://drive.google.com/file/d/1pHzriblnIvQl44uQrooGJXI4qGIE_YLU/view", 
             "rss": [
             "https://news.google.com/rss/search?q=%22Donaci%C3%B3n+de+%C3%B3rganos%22+OR+%22Donaci%C3%B3n+de+tejidos%22+OR+Incucai+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=%22Procuraci%C3%B3n+de+%C3%B3rganos%22+OR+%22M%C3%A9dula+%C3%B3sea%22+OR+%22Ablaci%C3%B3n+de+%C3%B3rganos%22+OR+Trasplante+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
             ], 
-            "keywords": ["trasplante", "trasplantes", "donación de órganos", "donacion de organos", "donación de tejidos", "tejidos", "incucai", "INCUCAI", "procuración de órganos", "médula ósea", "ablación de órganos", "trasplante"], "exclusiones": [], "limite": 10,
+            "keywords": ["trasplante", "trasplantes", "donación de órganos", "donacion de organos", "donación de tejidos", "tejidos", "incucai", "INCUCAI", "procuración de órganos", "médula ósea", "ablación de órganos", "trasplante"], "exclusiones": ["parkinson"], "limite": 10,
             "contexto_ia": "El interés es sobre trasplantes, donación y ablación de órganos. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico/donación, DEBE SER APROBADA. Solo rechazar explícitamente si se nombra una organización o caso de donación de otro país distinto a Argentina." }
         ]
     },
@@ -392,6 +393,7 @@ def limpiar_titulo(t):
     if not t: return "Sin Título"
     t = re.sub(r'\s+[-|::]+\s+[^|:-]{1,35}$', '', t)
     return t.strip()
+    
 
 def limpiar_nombre_medio(medio):
     if not medio: return "Portal Argentino"

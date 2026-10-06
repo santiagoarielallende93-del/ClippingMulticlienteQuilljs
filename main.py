@@ -1,4 +1,6 @@
 import sys
+import os
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"  # v2.1: Chromium dentro del paquete (para el .exe)
 import asyncio
 
 if sys.platform == 'win32':

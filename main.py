@@ -134,7 +134,7 @@ DOMINIOS_EXTRANJEROS = ['.mx', '.pe', '.co', '.cl', '.es', '.uy', '.py', '.ve', 
 DOMINIOS_EXTRANJEROS_EXACTOS = [
     'marca.com', 'lavanguardia.com', 'elconfidencial.com', 'elperiodico.com', 'elespanol.com', 'okdiario.com',
     'libertaddigital.com', 'mundodeportivo.com', 'eltiempo.com', 'semana.com', 'eluniverso.com',
-    'elnuevodia.com', 'prensalibre.com', 'laprensagrafica.com', 'elperiodicomediterraneo.com', 'hsbnoticias.com', 'murciaplaza.com', 'dw.com', 'fomoera.com', 'hellpress.com', 'revistaespejo.com', 'tribunavalladolid.com', 'vanidades.com'
+    'elnuevodia.com', 'prensalibre.com', 'laprensagrafica.com', 'elperiodicomediterraneo.com', 'hsbnoticias.com', 'murciaplaza.com', 'dw.com', 'fomoera.com', 'hellpress.com', 'revistaespejo.com', 'tribunavalladolid.com', 'vanidades.com', 'capitalmadrid.com'
 ]
 
 SUBDOMINIOS_EXTRANJEROS = ['mx', 'pe', 'co', 'cl', 'uy', 'py', 've', 'ec', 'bo', 'cr', 'gt', 'hn', 'ni', 'sv',
@@ -411,7 +411,21 @@ def limpiar_nombre_medio(medio):
         "Curecompass": "Cure Compass",
         "Somosjujuy": "Somos Jujuy",
         "Radiotucuman": "Radio Tucumán",
-        "Saludnews24": "Salud News 24"
+        "Saludnews24": "Salud News 24",
+        "Agromeat": "Agro Meat",
+        "Apea": "A.P.E.A.",
+        "Bichosdecampo": "Bichos de Campo",
+        "Es": "Esdairynews",
+        "Sercampo": "Ser Campo",
+        "Suenaacampo": "Suena a Campo",
+        "Todolecheria": "Todo Lechería",
+        "Marcelafittipaldi": "Marcela Fittipaldi",
+        "InfoNegocios": "Info Negocios",
+        "Vetcomunicaciones": "Vet Comunicaciones",
+        "Tn": "TN",
+        "Vetmarketportal": "Vet Market",
+        "Bhinfo": "BH Info",
+        "Norteenlinea": "Norte en Línea",
     }
     return correcciones.get(texto_final, texto_final)
 
@@ -3353,37 +3367,7 @@ async def index():
         
         with ui.column().classes('w-full max-w-5xl mx-auto p-8'):
             
-            try:
-                url_cb = f"{URL_VERSION_GITHUB}?t={int(time.time())}"
-                resp = requests.get(url_cb, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
-                if resp.status_code == 200:
-                    v_git = resp.text.strip().replace('"', '').replace("'", "")
-                    v_git_clean = re.sub(r'[^0-9.]', '', v_git)
-                    app_v_clean = re.sub(r'[^0-9.]', '', APP_VERSION)
-                    if v_git_clean and v_git_clean != app_v_clean:
-                        async def auto_actualizar():
-                            try:
-                                ui.notify('⏳ Descargando actualización desde GitHub...', type='info', position='top-right')
-                                url_code_cb = f"{URL_MAIN_PYTHON_GITHUB}?t={int(time.time())}"
-                                r_code = requests.get(url_code_cb, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
-                                if r_code.status_code == 200 and len(r_code.text) > 500:
-                                    ruta_script = os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else sys.argv[0])
-                                    with open(ruta_script, "w", encoding="utf-8") as f:
-                                        f.write(r_code.text)
-                                    ui.notify('✅ ¡Actualización instalada correctamente! Reiniciando...', type='positive', position='top-right')
-                                    await asyncio.sleep(1.5)
-                                    os.execv(sys.executable, [sys.executable] + sys.argv)
-                                else:
-                                    ui.notify('❌ No se pudo descargar el código de actualización.', type='negative', position='top-right')
-                            except Exception as err:
-                                ui.notify(f'❌ Error al actualizar: {str(err)}', type='negative', position='top-right')
-
-                        with ui.card().classes('w-full bg-amber-500 text-white font-bold p-3 mb-4 shadow-md rounded-xl'):
-                            with ui.row().classes('items-center justify-between w-full px-2'):
-                                ui.label(f'🚀 ¡Nueva versión ({v_git}) disponible!')
-                                ui.button('⚡ Actualizar y Reiniciar', on_click=auto_actualizar).props('flat text-color=white bg-black').classes('rounded-lg')
-            except Exception as e:
-                print(f"Error en chequeo de versión: {e}")
+            
 
             with ui.card().classes('w-full mb-6 p-4 border border-gray-200 shadow-sm rounded-xl bg-white'):
                 with ui.row().classes('items-center justify-between w-full'):
@@ -3458,4 +3442,8 @@ async def index():
 
     main_content()
 
-ui.run(title="Generador Clipping", port=8080, language="es", storage_secret="clipping2026_secret_key")
+import multiprocessing
+
+if __name__ in {"__main__", "__mp_main__"}:
+    multiprocessing.freeze_support()
+    ui.run(title="Generador Clipping", port=8080, language="es", storage_secret="clipping2026_secret_key", reload=False)

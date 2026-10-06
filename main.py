@@ -27,7 +27,7 @@ import threading
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "5.36"
+APP_VERSION = "2.0"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 GROQ_API_KEY = "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" 

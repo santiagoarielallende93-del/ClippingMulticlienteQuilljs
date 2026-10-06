@@ -16,26 +16,108 @@ import datetime
 import time
 import re
 import unicodedata
-import base64
 import json
 import os
 import io
 import csv
 import queue
 import requests
+import threading
 
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "5.4"
+APP_VERSION = "5.36"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
-GROQ_API_KEY = "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" 
+GROQ_API_KEY = "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" 
+GROQ_API_KEY_2 = "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"  # Secundaria (respaldo ante saturación)
+GROQ_KEYS = [GROQ_API_KEY, GROQ_API_KEY_2]
+# ---------- FILTRO "SOLO ARGENTINA" (BMS, todas las secciones excepto Exclusivas) ----------
+CLIENTES_FILTRO_AR = ["BMS"]
+SECCIONES_SIN_FILTRO_AR = ["bms_tema_1"]  # Exclusivas
+SECCIONES_FILTRO_AR_ESTRICTO_RSS = ["bms_tema_4"]  # Competencia: descarta extranjeros ANTES de leer la nota
+
+# Sitios NO ".ar" que SÍ son argentinos (dominios sin "www."). AGREGAR ACÁ los nuevos.
+SITIOS_COM_ARGENTINOS = [
+    "infobae.com", "iprofesional.com", "elonce.com", "ambito.com", "cronista.com", "baenegocios.com",
+    "clarin.com", "perfil.com", "eldia.com", "minutouno.com", "mdzol.com", "diarioregistrado.com",
+    "elintransigente.com", "lapoliticaonline.com", "cadena3.com", "saludiario.com", "infocampo.com",
+    "eldiarioar.com", "noticiasargentinas.com", "mejorinformado.com", "infonegocios.com", "0223.com", "pharmabiz.net", "pmfarma.com", "cienciatecno.com", "presenterse.com", "yahoo.com", "latamsalud.com", "parasusalud.tv", "la100.cienradios.com", "gov.ar", "eldestapeweb.com", "campoenaccion.com"
+]
+
+# Si el sitio no es .ar ni está en la lista, se acepta solo si el texto habla de Argentina (agregar/quitar a gusto)
+KW_ARGENTINA = ["argentina", "argentino", "argentinos", "argentinas", "anmat", "buenos aires", "pami",
+                "conicet", "milei", "ministerio de salud de la nacion", "superintendencia de servicios de salud",
+                "obras sociales", "sistema de salud argentino"]
+
+# Diarios argentinos con prioridad máxima (se matchea contra nombre del medio o dominio, sin espacios/acentos)
+PRIORIDAD_DIARIOS_AR = ["baenegocios", "ambito", "cronista", "infobae", "clarin", "lanacion", "iprofesional",
+                        "pagina12", "perfil", "telam", "elonce", "lavoz", "rionegro", "losandes", "lagaceta"]
+
+def aplica_filtro_ar(cliente_nombre, sec_id):
+    return cliente_nombre in CLIENTES_FILTRO_AR and sec_id not in SECCIONES_SIN_FILTRO_AR
+
+def es_diario_ar_prioritario(medio, url=""):
+    m = re.sub(r'[^a-z0-9]', '', remover_acentos(str(medio).lower()))
+    h = urlparse(str(url)).netloc.lower().replace("www.", "")
+    h = re.sub(r'[^a-z0-9]', '', h)
+    return any(d in m or d in h for d in PRIORIDAD_DIARIOS_AR)
+
+def es_sitio_permitido_ar(url, medio="", texto=""):
+    """True si es .ar, está en SITIOS_COM_ARGENTINOS, es diario prioritario, o el texto habla de Argentina."""
+    try: host = urlparse(str(url)).netloc.lower().split(':')[0]
+    except Exception: host = ""
+    if host.startswith('www.'): host = host[4:]
+    if not host or host.endswith('google.com'): return True  # destino sin resolver: no se juzga todavía
+    if host.endswith('.ar'): return True
+    if any(host == d or host.endswith('.' + d) for d in SITIOS_COM_ARGENTINOS): return True
+    if es_diario_ar_prioritario(medio, url): return True
+    t = remover_acentos(f"{texto} {medio}".lower())
+    return any(k in t for k in KW_ARGENTINA)
+
+LIMITE_POOL_IA = 30  # Máx. de notas a analizar con IA por sección
+
+_GROQ_LOCK = threading.Lock()
+_GROQ_BLOQUEADA_HASTA = {}  # índice de key -> timestamp hasta el que se considera saturada
+
+def llamar_groq(payload, timeout=25, logger=None):
+    """POST a Groq con failover: usa la key 1; si está saturada (429/503), pasa a la key 2 (y viceversa)."""
+    ultimo_error = None
+    for idx in range(len(GROQ_KEYS)):
+        with _GROQ_LOCK:
+            if _GROQ_BLOQUEADA_HASTA.get(idx, 0) > time.time():
+                continue
+        try:
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_KEYS[idx]}", "Content-Type": "application/json"},
+                json=payload, timeout=timeout)
+            if resp.status_code in (429, 498, 503):
+                try: espera = min(float(resp.headers.get("retry-after", 60)), 3600)
+                except Exception: espera = 60
+                with _GROQ_LOCK:
+                    _GROQ_BLOQUEADA_HASTA[idx] = time.time() + max(espera, 5)
+                if logger: logger(f"    🔑 API Key {idx+1} saturada (HTTP {resp.status_code}). Cambiando a la siguiente...")
+                ultimo_error = Exception(f"HTTP {resp.status_code} en key {idx+1}")
+                continue
+            resp.raise_for_status()
+            return resp
+        except requests.exceptions.HTTPError:
+            raise
+        except Exception as e:
+            ultimo_error = e
+            continue
+    raise ultimo_error or Exception("Todas las API Keys de Groq están saturadas")
+
 USAR_FILTRO_IA = True  # Desactivable globalmente si se requiere
 LINK_EXCEL_DRIVE = "https://docs.google.com/spreadsheets/d/1ZntitgSKrfkaL5rpG45ajwbr0yPVvfAp/edit?usp=sharing&ouid=110785507732300006515&rtpof=true&sd=true"
 
 # Cache global de gacetillas para renderizado en UI
 GACETILLAS_CACHE = None
+
+# Caché por Sesión para evaluación de IA (Acelera búsquedas y ahorra tokens)
+CACHE_IA_SESION = {}
 
 # Archivos de persistencia histórica antiduplicados
 HISTORIAL_JSON = "historial_notas.json"
@@ -46,289 +128,33 @@ CREDENCIALES = {
     "usuario": "clipping2026"
 }
 
-DOMINIOS_EXTRANJEROS = ['.mx', '.pe', '.co', '.cl', '.es', '.uy', '.py', '.ve', '.ec', '.bo', '.cr', '.gt', '.hn', '.ni', '.pa', '.sv', '.do']
-PORTALES_EXTRANJEROS_KEYWORDS = ['profeco', 'peru retail', 'peru-retail', 'luz noticias', 'luznoticias', 'milenio', 'el universal mexico', 'el comercio peru', 'larepublica.pe', 'infobae colombia', 'infobae mexico', 'infobae peru', 'infobae espana']
+DOMINIOS_EXTRANJEROS = ['.mx', '.pe', '.co', '.cl', '.es', '.uy', '.py', '.ve', '.ec', '.bo', '.cr', '.gt', '.hn', '.ni', '.pa', '.sv', '.do',
+                        '.br', '.pt', '.cu', '.pr', '.gq', '.eu', '.uk', '.fr', '.de', '.it', '.us', '.vn', '.io']
 
-# Segmentos de ruta URL para descartar ediciones internacionales de sitios globales (ej. Infobae Colombia)
+DOMINIOS_EXTRANJEROS_EXACTOS = [
+    'marca.com', 'lavanguardia.com', 'elconfidencial.com', 'elperiodico.com', 'elespanol.com', 'okdiario.com',
+    'libertaddigital.com', 'mundodeportivo.com', 'eltiempo.com', 'semana.com', 'eluniverso.com',
+    'elnuevodia.com', 'prensalibre.com', 'laprensagrafica.com', 'elperiodicomediterraneo.com', 'hsbnoticias.com', 'murciaplaza.com', 'dw.com', 'fomoera.com', 'hellpress.com', 'revistaespejo.com', 'tribunavalladolid.com', 'vanidades.com'
+]
+
+SUBDOMINIOS_EXTRANJEROS = ['mx', 'pe', 'co', 'cl', 'uy', 'py', 've', 'ec', 'bo', 'cr', 'gt', 'hn', 'ni', 'sv',
+                           'mexico', 'espana', 'colombia', 'peru', 'chile', 'venezuela', 'ecuador', 'bolivia',
+                           'uruguay', 'paraguay', 'guatemala', 'honduras', 'nicaragua', 'panama', 'elsalvador', 'costarica']
+PORTALES_EXTRANJEROS_KEYWORDS = ['investing.com espana', 'es.investing.com', 'profeco', 'peru retail', 'peru-retail', 'luz noticias', 'luznoticias', 'milenio', 'el universal mexico', 'el comercio peru', 'larepublica.pe', 'infobae colombia', 'infobae mexico', 'infobae peru', 'infobae espana']
+
 RUTAS_EXTRANJERAS_KEYWORDS = [
     '/colombia/', '/mexico/', '/peru/', '/espana/', '/venezuela/',
     '/ecuador/', '/chile/', '/bolivia/', '/uruguay/', '/paraguay/',
     '/guatemala/', '/honduras/', '/nicaragua/', '/panama/', '/elsalvador/',
     '/dominicana/', '/puertorico/', '/america/colombia/', '/america/mexico/',
-    '/america/peru/', '/america/espana/', '/america/venezuela/'
+    '/america/peru/', '/america/espana/', '/america/venezuela/',
+    '/es-es/', '/es_es/', '/es-mx/', '/es_mx/', '/es-co/', '/es_co/', '/es-cl/', '/es_cl/', '/es-pe/', '/es_pe/',
+    '/es-uy/', '/es_uy/', '/es-ve/', '/es_ve/', '/es-ec/', '/es_ec/', '/es-bo/', '/es_bo/', '/es-py/', '/es_py/'
 ]
 
-# Secciones directas/específicas que NUNCA deben pasar por IA (solo keywords directas)
 SECCIONES_DIRECTAS_KEYWORDS = ['exclusiva', 'exclusivas', 'competencia', 'mencion', 'menciones', 'corporativo', 'snacking', 'pet nutrition']
 
-def es_tier_1_o_2(tier_val):
-    """Verifica si un medio es clasificado como Tier 1 o Tier 2."""
-    try:
-        t_clean = str(tier_val).lower().replace('tier', '').strip()
-        if t_clean in ['1', '2', '1.0', '2.0']:
-            return True
-    except Exception:
-        pass
-    return False
-
-def parse_fecha_sortable(texto_fecha):
-    """Convierte una cadena de fecha DD/MM/YYYY o YYYY-MM-DD a timestamp numérico para ordenamiento."""
-    if not texto_fecha: return 0
-    t_str = str(texto_fecha).strip()
-    try:
-        dt = datetime.datetime.strptime(t_str, "%d/%m/%Y")
-        return dt.timestamp()
-    except Exception:
-        try:
-            dt = datetime.datetime.strptime(t_str, "%Y-%m-%d")
-            return dt.timestamp()
-        except Exception:
-            return 0
-
-# ====================================================================
-# GESTIÓN DE HISTORIAL ANTIDUPLICADOS POR CLIENTE (EXCEL Y JSON)
-# ====================================================================
-def cargar_historial_cliente(cliente_nombre):
-    """
-    Carga únicamente los enlaces (URLs) de notas publicadas en entregas anteriores
-    CORRESPONDIENTES AL CLIENTE ESPECÍFICO.
-    Evita que notas de un cliente (ej. Mars) bloqueen las del otro (ej. MSD).
-    """
-    links_historial = set()
-    sheet_name = cliente_nombre[:30]
-
-    # 1. Cargar desde Excel (historial_notas.xlsx) solo la hoja del cliente actual
-    if os.path.exists(HISTORIAL_EXCEL):
-        try:
-            xls = pd.ExcelFile(HISTORIAL_EXCEL)
-            if sheet_name in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=sheet_name)
-                for col in df.columns:
-                    for val in df[col].dropna():
-                        v_str = str(val).strip().lower()
-                        if v_str.startswith("http"):
-                            links_historial.add(v_str)
-        except Exception as e:
-            print(f"⚠️ Error al leer historial Excel para {cliente_nombre}: {e}")
-
-    # 2. Cargar desde JSON respaldo (historial_notas.json) filtrado por cliente
-    if os.path.exists(HISTORIAL_JSON):
-        try:
-            with open(HISTORIAL_JSON, "r", encoding="utf-8") as f:
-                data_json = json.load(f)
-                if isinstance(data_json, dict):
-                    client_links = data_json.get(cliente_nombre, [])
-                    for l in client_links:
-                        links_historial.add(str(l).strip().lower())
-        except Exception as e:
-            print(f"⚠️ Error al leer historial JSON: {e}")
-
-    return links_historial
-
-def guardar_en_historial_excel(cliente_nombre, data_auditoria):
-    """
-    Guarda las notas confirmadas en el archivo 'historial_notas.xlsx'.
-    Estructura del Excel:
-      - Una pestaña (hoja) por cada Cliente.
-      - Columnas: Nombre de cada Sección.
-      - Filas: Enlaces redirigidos/limpios (URLs finales de los medios, NO news.google).
-    También actualiza 'historial_notas.json' separado por cliente.
-    """
-    try:
-        sheets_dict = {}
-        if os.path.exists(HISTORIAL_EXCEL):
-            try:
-                xls = pd.ExcelFile(HISTORIAL_EXCEL)
-                for sheet in xls.sheet_names:
-                    sheets_dict[sheet] = pd.read_excel(xls, sheet_name=sheet)
-            except Exception:
-                sheets_dict = {}
-
-        sheet_name = cliente_nombre[:30]
-        
-        if sheet_name in sheets_dict:
-            df_client = sheets_dict[sheet_name]
-        else:
-            df_client = pd.DataFrame()
-
-        secciones_dict = {}
-        for col in df_client.columns:
-            secciones_dict[col] = [str(x).strip() for x in df_client[col].dropna() if str(x).strip()]
-
-        nuevos_links_json = []
-        for sec in data_auditoria:
-            sec_nombre = sec['nombre']
-            if sec_nombre not in secciones_dict:
-                secciones_dict[sec_nombre] = []
-            
-            for ev in sec.get('evaluaciones', []):
-                if ev.get('estado') == 'SUMADA' and ev.get('link'):
-                    link_orig_clean = str(ev['link']).strip()
-                    nuevos_links_json.append(link_orig_clean.lower())
-
-                    link_excel = str(ev.get('link_destino') or ev.get('link')).strip()
-                    if link_excel and link_excel not in secciones_dict[sec_nombre]:
-                        secciones_dict[sec_nombre].append(link_excel)
-                        nuevos_links_json.append(link_excel.lower())
-
-        max_len = max([len(v) for v in secciones_dict.values()], default=0)
-        df_actualizado = pd.DataFrame()
-        for col_name, links_list in secciones_dict.items():
-            padded = links_list + [None] * (max_len - len(links_list))
-            df_actualizado[col_name] = padded
-
-        sheets_dict[sheet_name] = df_actualizado
-
-        with pd.ExcelWriter(HISTORIAL_EXCEL, engine='openpyxl') as writer:
-            for s_name, df_sheet in sheets_dict.items():
-                df_sheet.to_excel(writer, sheet_name=s_name, index=False)
-
-        # Actualizar JSON indexado por nombre de cliente
-        data_json = {}
-        if os.path.exists(HISTORIAL_JSON):
-            try:
-                with open(HISTORIAL_JSON, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-                    if isinstance(loaded, dict):
-                        data_json = loaded
-            except Exception:
-                data_json = {}
-
-        client_set = set(data_json.get(cliente_nombre, []))
-        client_set.update(nuevos_links_json)
-        data_json[cliente_nombre] = list(client_set)
-
-        with open(HISTORIAL_JSON, "w", encoding="utf-8") as f:
-            json.dump(data_json, f, ensure_ascii=False, indent=2)
-
-    except Exception as e:
-        print(f"⚠️ Error al guardar en historial Excel: {e}")
-
-def extraer_gacetilla_mas_reciente(df_gacetillas, cliente_nombre):
-    """
-    Busca en la pestaña 'Gacetillas 2026' la gacetilla/frase más reciente para el cliente seleccionado.
-    """
-    if df_gacetillas is None or df_gacetillas.empty:
-        return None
-    
-    try:
-        cols = {remover_acentos(str(c).lower().strip()): c for c in df_gacetillas.columns}
-        
-        col_cliente = next((orig for k, orig in cols.items() if 'cliente' in k), None)
-        col_fecha = next((orig for k, orig in cols.items() if 'fecha' in k or 'date' in k), None)
-        col_gacetilla = next((orig for k, orig in cols.items() if 'gacetilla' in k or 'titulo' in k or 'frase' in k or 'busqueda' in k or 'tema' in k), None)
-        
-        if col_cliente and col_gacetilla:
-            cli_norm = remover_acentos(str(cliente_nombre).lower().strip())
-            df_sub = df_gacetillas[df_gacetillas[col_cliente].astype(str).apply(lambda x: cli_norm in remover_acentos(x.lower()))].copy()
-            if not df_sub.empty:
-                if col_fecha:
-                    df_sub['fecha_dt'] = pd.to_datetime(df_sub[col_fecha], dayfirst=True, errors='coerce')
-                    df_sub = df_sub.sort_values('fecha_dt', ascending=False)
-                texto = str(df_sub[col_gacetilla].iloc[0]).strip()
-                if texto and texto.lower() != 'nan':
-                    return texto
-        
-        col_cli_direct = next((orig for k, orig in cols.items() if remover_acentos(str(cliente_nombre).lower()) in k or k in remover_acentos(str(cliente_nombre).lower())), None)
-        if col_cli_direct:
-            vals = [str(v).strip() for v in df_gacetillas[col_cli_direct].dropna().tolist() if str(v).strip() and str(v).lower() != 'nan']
-            if vals:
-                return vals[-1]
-    except Exception as e:
-        print(f"Error parseando gacetillas: {e}")
-        
-    return None
-
-def obtener_gacetilla_cliente_cached(cliente_nombre):
-    """Obtiene la gacetilla del cliente utilizando el cache global de gacetillas."""
-    global GACETILLAS_CACHE
-    if GACETILLAS_CACHE is None:
-        try:
-            match = re.search(r'/d/([a-zA-Z0-9-_]+)', LINK_EXCEL_DRIVE)
-            if match:
-                file_id = match.group(1)
-                url_descarga = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
-                req_excel = urllib.request.Request(url_descarga, headers={'User-Agent': 'Mozilla/5.0'})
-                resp_excel = urllib.request.urlopen(req_excel)
-                xls_cargado = pd.ExcelFile(io.BytesIO(resp_excel.read()))
-                hoja_gacetillas = next((s for s in xls_cargado.sheet_names if "gacetilla" in remover_acentos(s.lower())), None)
-                if hoja_gacetillas:
-                    GACETILLAS_CACHE = pd.read_excel(xls_cargado, sheet_name=hoja_gacetillas)
-        except Exception as e:
-            print(f"Error cargando gacetillas cache: {e}")
-
-    if GACETILLAS_CACHE is not None:
-        return extraer_gacetilla_mas_reciente(GACETILLAS_CACHE, cliente_nombre)
-    return None
-
-def es_seccion_general(sec_id, nombre_seccion):
-    """Determina si una sección es general/temática (usa IA) o directa (keywords directas, sin IA)."""
-    sec_id_lower = str(sec_id).lower()
-    nombre_lower = remover_acentos(str(nombre_seccion).lower())
-    for kw in SECCIONES_DIRECTAS_KEYWORDS:
-        if kw in sec_id_lower or kw in nombre_lower:
-            return False
-    return True
-
-def es_portal_extranjero(url, medio, texto=""):
-    """
-    Verifica si una nota proviene de un portal extranjero o de la sección/edición
-    internacional de un sitio global (ej. infobae.com/colombia/).
-    """
-    url_lower = (url or "").lower()
-    netloc = urlparse(url_lower).netloc
-
-    for tld in DOMINIOS_EXTRANJEROS:
-        if netloc.endswith(tld) or f"{tld}/" in url_lower:
-            return True
-
-    for ruta in RUTAS_EXTRANJERAS_KEYWORDS:
-        if ruta in url_lower:
-            return True
-
-    medio_norm = remover_acentos((medio or "").lower())
-    for kw in PORTALES_EXTRANJEROS_KEYWORDS:
-        if kw in medio_norm or kw in url_lower:
-            return True
-
-    return False
-
-def es_fecha_en_rango(texto_fecha, timeframe):
-    """Verifica si la fecha del ítem de RSS está dentro del rango seleccionado (1d, 3d, 5d)."""
-    if not texto_fecha:
-        return True
-    try:
-        dt_item = email.utils.parsedate_to_datetime(texto_fecha)
-        dt_now = datetime.datetime.now(datetime.timezone.utc) if dt_item.tzinfo else datetime.datetime.now()
-        
-        dias = 1
-        if timeframe == "3d": dias = 3
-        elif timeframe in ["5d", "7d"]: dias = 5
-        
-        limite_segundos = (dias * 86400) + (4 * 3600)
-        diferencia = (dt_now - dt_item).total_seconds()
-        
-        return 0 <= diferencia <= limite_segundos
-    except Exception:
-        return True
-
-# ====================================================================
-# AUDITORÍA DE REGISTRO
-# ====================================================================
-def registrar_actividad(usuario, accion, detalles):
-    archivo_log = "registro_uso.csv"
-    archivo_existe = os.path.isfile(archivo_log)
-    fecha_hora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    with open(archivo_log, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        if not archivo_existe: 
-            writer.writerow(["Fecha y Hora", "Usuario", "Acción", "Detalles"])
-        writer.writerow([fecha_hora, usuario, accion, detalles])
-
-# ====================================================================
-# DICCIONARIO MAESTRO DE CLIENTES
-# ====================================================================
-CLIENTES_CONFIG = {
+CLIENTES_CONFIG = { 
     "MSD Salud Animal": {
         "color_primario": "#006E74",
         "hoja_excel": "MSD",
@@ -338,50 +164,60 @@ CLIENTES_CONFIG = {
             {
                 "id": "exclusivas", "nombre": "Exclusivas", "nombre_largo": "Exclusivas (MSD Salud Animal)",
                 "img_local": "banners/exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1cUyr83JrnQIo0XqMFltpoQkbuskaN41C/view", 
-                "rss": ["https://news.google.com/rss/search?q=%22MSD%20Salud%20Animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "rss": ["https://news.google.com/rss/search?q=%22MSD%20Salud%20Animal%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
                 "https://news.google.com/rss/search?q=%22Walter%20Comas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22Clara%20Fern%C3%A1ndez%20Boglione%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "https://news.google.com/rss/search?q=%22Clara%20Fern%C3%A1ndez%20Boglione%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/search?q=Pablo%20Nervi%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
                 "keywords": ["MSD Salud Animal", "MSD", "Walter Comas", "Clara Fernández Boglione", "Pablo Nervi", "Emiliano Segurado"], "exclusiones": [], "limite": 20
             },
             {
                 "id": "ceo", "nombre": "CEO", "nombre_largo": "CEO",
                 "img_local": "banners/ceo.jpg", "img_url": "https://drive.google.com/file/d/1IH8MranbZnd_R--Nz5JZFbxbg3kDTfBB/view", 
-                "rss": ["https://news.google.com/rss/search?q=CEO%20empresa%20-futbol%20-deportes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-                "keywords": ["ceo", "CEO", "entrevista", "Entrevista", "ENTREVISTA", "Chief Ejecutive Officer", "Director Ejecutivo", "en dialogo"], "exclusiones": ["fútbol", "futbol", "partido", "dt ", "boca", "river", "racing", "independiente", "san lorenzo", "champions", "tenis", "nba", "rugby", "goles", "gol ", "estadio", "scaloni", "actor", "actriz", "película", "pelicula", "cine", "teatro", "recital", "cantante", "música", "musica", "farándula", "gran hermano", "reality", "asesinato", "crimen"], "limite": 10
+                "rss": ["https://news.google.com/rss/search?q=CEO%20-futbol%20-deportes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "keywords": ["ceo", "CEO", "entrevista", "Entrevista", "ENTREVISTA", "Chief Ejecutive Officer", "Director Ejecutivo", "en dialogo"], "exclusiones": ["fútbol", "futbol", "partido", "dt ", "boca", "river", "racing", "independiente", "san lorenzo", "champions", "tenis", "nba", "rugby", "goles", "gol ", "estadio", "scaloni", "actor", "actriz", "película", "pelicula", "cine", "teatro", "recital", "cantante", "música", "musica", "farándula", "gran hermano", "reality", "asesinato", "crimen"], "limite": 10,
+                "contexto_ia": "El interés es estrictamente sobre entrevistas, declaraciones o frases textuales de cualquier CEO, Presidente o Director de empresas operando en Argentina (no es obligatorio que sea de MSD). NO incluir notas que solo anuncien designaciones o cambios de puesto sin testimonios o dichos."
             },
             {
                 "id": "salud", "nombre": "Salud Animal", "nombre_largo": "Salud Animal",
                 "img_local": "banners/salud.jpg", "img_url": "https://drive.google.com/file/d/1Uc5WOsfk6kPBTncXsb6b7qOQlX3guYhz/view", 
                 "rss": ["https://news.google.com/rss/search?q=zoonosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=hantavirus%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=hantavirus%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
                 "https://news.google.com/rss/search?q=triquinosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
                 "https://news.google.com/rss/search?q=%22bienestar%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22salud%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-                "keywords": ["zoonosis", "hantavirus", "triquinosis", "veterinaria", "salud animal", "humano", "humanos", "Biogénesis Bagó"], "exclusiones": ["pediatría", "hospital municipal", "paro médico", "prepaga", "ioma", "pami", "estética humana"], "limite": 10
+                "https://news.google.com/rss/search?q=%22salud%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=ARG%20gripe%20aviar%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "keywords": ["gripe aviar", "zoonosis", "hantavirus", "triquinosis", "veterinaria", "salud animal", "humano", "humanos", "Biogénesis Bagó"], "exclusiones": ["pediatría", "hospital municipal", "paro médico", "prepaga", "ioma", "pami", "estética humana"], "limite": 10,
+                "contexto_ia": "El interés es sobre enfermedades transmitidas de animales a humanos (zoonosis) y novedades de la industria veterinaria en general. EXCLUIR notas cuyo foco principal sean las mascotas o animales de compañía."
             },
             {
                 "id": "mascotas", "nombre": "Animales de Compañía", "nombre_largo": "Animales de Compañía / Mascotas",
                 "img_local": "banners/mascotas.jpg", "img_url": "https://drive.google.com/file/d/1-zviGD1bM6e5493pKhUntxGXVQTquj5z/view", 
-                "rss": ["https://news.google.com/rss/search?q=mascotas%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=perros%20veterinaria%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=gatos%20veterinaria%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22animales%20de%20compa%C3%B1%C3%ADa%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-                "keywords": ["Mascotas", "Perros", "Perro", "Gato", "Gatos", "Animales de compañía", "canino", "felino"], "exclusiones": ["ballena", "delfín", "tiburón", "fauna silvestre", "zoológico", "zoo ", "matt damon", "actor", "actriz", "película", "pelicula", "cine", "hollywood", "famosos", "farándula", "gran hermano", "reality", "hugo sigman", "insud", "diputado", "senador"], "limite": 15
+                "rss": ["https://news.google.com/rss/search?q=mascotas%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=perros%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=gatos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=animales%20de%20compa%C3%B1%C3%ADa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "keywords": ["Mascotas", "Perros", "Perro", "Gato", "Gatos", "Animales de compañía", "canino", "felino"], "exclusiones": ["ballena", "delfín", "tiburón", "fauna silvestre", "zoológico", "zoo ", "matt damon", "actor", "actriz", "película", "pelicula", "cine", "hollywood", "famosos", "farándula", "gran hermano", "reality", "hugo sigman", "insud", "diputado", "senador"], "limite": 15,
+                "contexto_ia": "El interés es EXCLUSIVAMENTE sobre mascotas (perros y gatos domésticos)."
             },
             {
                 "id": "aves", "nombre": "Aves", "nombre_largo": "Aves",
                 "img_local": "banners/aves.jpg", "img_url": "https://drive.google.com/file/d/1xxWwhur4zqeiH5OyH11LtVa-nqH-Bvfp/view", 
                 "rss": ["https://news.google.com/rss/search?q=avicultura%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22granjas%20av%C3%ADcolas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=produccion%20avicola%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=gallinas%20huevos%20produccion%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-                "keywords": ["Aves", "Avicultura", "Avícola", "avícolas", "huevo", "huevos", "gallina", "gallinas", "granjas avícolas"], "exclusiones": ["dinosaurio", "fósil", "cóndor", "fauna silvestre", "avión", "aerolíneas", "vuelo"], "limite": 10
+                "keywords": ["Aves", "Avicultura", "Avícola", "avícolas", "huevo", "huevos", "gallina", "gallinas", "granjas avícolas"], "exclusiones": ["dinosaurio", "fósil", "cóndor", "fauna silvestre", "avión", "aerolíneas", "vuelo"], "limite": 10,
+                "contexto_ia": "El interés es sobre avicultura, granjas avícolas, gallinas, pollos, y la producción o consumo de huevos/carne aviar en Argentina."
             },
             {
                 "id": "cerdos", "nombre": "Cerdos", "nombre_largo": "Cerdos",
                 "img_local": "banners/cerdos.jpg", "img_url": "https://drive.google.com/file/d/1vvV1SK4Vf0Y6Zijn_9pOIfQbZV11Gw-v/view", 
-                "rss": ["https://news.google.com/rss/search?q=cerdos%20produccion%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-                "keywords": ["Cerdos", "Porcino", "Porcina"], "exclusiones": ["actor", "actriz", "farándula", "película", "cine"], "limite": 10
+                "rss": ["https://news.google.com/rss/search?q=cerdos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "keywords": ["Cerdos", "Cerdas", "Porcino", "Porcina"], "exclusiones": ["actor", "actriz", "farándula", "película", "cine"], "limite": 10,
+                "contexto_ia": "El interés es sobre porcicultura, producción y consumo de cerdos en Argentina, y enfermedades porcinas que NO se transmiten a humanos."
             },
             {
                 "id": "ganaderia", "nombre": "Ganadería", "nombre_largo": "Ganadería",
                 "img_local": "banners/ganaderia.jpg", "img_url": "https://drive.google.com/file/d/1JglW_UjMe-Lzqc7nxA1Ws776gVqXPI08/view", 
-                "rss": ["https://news.google.com/rss/search?q=ganaderia%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tecnovax%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=bovino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=feedlot%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=vacas%20ganado%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-                "keywords": ["Ganadería", "Ganadero", "Bovino", "Ganado", "vacas", "vaca", "feedlot", "feedlots", "tecnovax", "lechería", "leche", "brucelosis", "tuberculosis", "aftosa",], "exclusiones": ["actor", "actriz", "farándula", "película", "cine", "fútbol", "Vaca Muerta"], "limite": 20
+                "rss": ["https://news.google.com/rss/search?q=ganaderia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tecnovax%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=bovino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=feedlot%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=vacas%20ganado%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "keywords": ["Ganadería", "Ganadero", "Bovino", "Ganado", "vacas", "vaca", "feedlot", "feedlots", "tecnovax", "lechería", "leche", "brucelosis", "tuberculosis", "aftosa",], "exclusiones": ["actor", "actriz", "farándula", "película", "cine", "fútbol", "Vaca Muerta"], "limite": 20,
+                "contexto_ia": "El interés es sobre ganadería bovina, lechería, tambos, producción y consumo de carne vacuna, y enfermedades bovinas que NO se transmiten a humanos."
             },
             {
                 "id": "innovacion", "nombre": "Innovación en Salud Animal", "nombre_largo": "Innovación en Salud Animal",
@@ -409,20 +245,92 @@ CLIENTES_CONFIG = {
     "BMS": {
         "color_primario": "#1A4FB5", "hoja_excel": "BMS", "banner_principal_local": "banners/bms_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1ruuvwWkVLVgu-ZJJ6wwEPF8S6snh5mUX/view",
         "secciones": [
-            { "id": "bms_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/bms_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1ZYHx7jQfemxr2S4g5crIpaGdDgJtXQds/view", "rss": ["https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=ARG%20Bristol%20Myers%20Squibb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-            "keywords": ["Bristol Myers Squibb", "Bristol-Myers Squibb", "BMS"], "exclusiones": [], "limite": 20 },
-            { "id": "bms_tema_2", "nombre": "Noticias del Sector", "nombre_largo": "Noticias del Sector", "img_local": "banners/bms_noticiasdelsector.jpg", "img_url": "https://drive.google.com/file/d/1FhuuaWsEr2ywBp_QzKGuvwZOm1W6gekK/view", "rss": ["https://news.google.com/rss/search?q=Salud%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=medicamentos%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Ministro%20de%20Salud%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22obras%20sociales%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22investigaci%C3%B3n%20cl%C3%ADnica%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Salud", "medicamentos", "Ministro de Salud", "obras sociales", "investigación clínica"], "exclusiones": [], "limite": 20 },
-            { "id": "bms_tema_3", "nombre": "Propiedad Intelectual / Biosimilares", "nombre_largo": "Propiedad Intelectual / Biosmilares", "img_local": "banners/bms_propiedadintelectualbiosimilares.jpg", "img_url": "https://drive.google.com/file/d/12A4oDRQ7BlmY_zop1a0ThahV1JOFQ8vk/view", "rss": [], "keywords": [], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_4", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/bms_competencia.jpg", "img_url": "https://drive.google.com/file/d/1rZfcOHZGfwsk40-L8Ti0fIlp6z6spM9G/view", "rss": ["https://news.google.com/rss/search?q=Pfizer%20OR%20Astrazeneca%20OR%20Richmond%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Abbot%20OR%20Abbvie%20OR%20AMgen%20OR%20Boehringer%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Elanco%20OR%20%22Johnson%20%26%20Johnson%22%20OR%20%22Kimberly%20Clarck%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=mAbxience%20OR%20Lilly%20OR%20MERCK%20OR%20Novartis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Novo%20Nordick%22%20OR%20Roche%20OR%20Sanofi%20OR%20Takeda%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Zoetis%20OR%20%22Thermo%20Fisher%22%20OR%20Eczane%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pfizer", "Richmond", "Astrazeneca", "Abbot", "Abbvie", "Amgen", "Boehringer", "Elanco", "Johnson & Johnson", "Kimberly Clarck", "mAbxience", "Lilly", "Merck", "Novartis", "Novo Nordick", "Roche", "Sanofi", "Takeda", "Zoetis", "Thermo Fisher", "Eczane"], "exclusiones": [], "limite": 20 },
+            { "id": "bms_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/bms_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1ZYHx7jQfemxr2S4g5crIpaGdDgJtXQds/view", "rss": [
+            "https://news.google.com/rss/search?q=%22Bristol+Myers+Squibb%22+OR+%22Bristol+Myers%22+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
+            "https://news.google.com/rss/search?q=AR%20BMS%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20Bristol%20Myers%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+            "https://news.google.com/rss/search?q=ipilimumab+OR+Opdivo+OR+nivolumab+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=Sotyktu+OR+deucravacitinib+OR+mavacamten+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=Camzyos+OR+abatacept+OR+Orencia+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=belatacept+OR+Nulojix+OR+daclatasvir+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=Daklinza+OR+entecavir+OR+Baraclude+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
+            ], 
+            "keywords": ["Bristol", "Bristol-Myers", "Bristol Myers", "Bristol Myers Squibb", "Bristol-Myers Squibb", "BMS", "opdivo", "nivolumab", "Sotyktu", "deucravacitinib", "mavacamten", "Camzyos", "abatacept", "Orencia", "belatacept", "Nulojix", "daclatasvir", "Daklinza", "daclatasvir", "Daklinza", "entecavir", "Baraclude"], "exclusiones": [], "limite": 20 },
+            { "id": "bms_tema_2", "nombre": "Noticias del Sector", "nombre_largo": "Noticias del Sector", "img_local": "banners/bms_noticiasdelsector.jpg", "img_url": "https://drive.google.com/file/d/1FhuuaWsEr2ywBp_QzKGuvwZOm1W6gekK/view", "rss": [
+            "https://news.google.com/rss/search?q=AR%20CILFA%20OR%20ANEFITS%20OR%20Medicamentos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
+            "https://news.google.com/rss/search?q=AR%20%22Obras%20sociales%22%20OR%20%22Mario%20Lugones%22%20OR%20%22Ministerio%20de%20Salud%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
+            "https://news.google.com/rss/search?q=AR%20Prepagas%20OR%20Farma%20OR%20Farmac%C3%A9uticas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
+            "https://news.google.com/rss/search?q=AR%20%22Laboratorios%20farmac%C3%A9uticos%22%20OR%20%22IA%20Salud%22%20OR%20%22I%2BD%20farmac%C3%A9utica%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
+            "https://news.google.com/rss/search?q=Gen%C3%A9ricos%20OR%20UIA%20OR%20CAEME%20OR%20%22Sistema%20de%20salud%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419" #global
+            ],
+            "keywords": ["CILFA", "ANEFITS", "medicamentos", "obras sociales", "Mario Lugones", "Ministerio de Salud", "prepagas", "farma", "farmacéuticas", "laboratorios farmacéuticos", "IA", "I+D farmacéutica", "genéricos", "UIA", "CAEME", "sistema de salud"], "exclusiones": [], "limite": 15,
+            "contexto_ia": "El interés es sobre notas relacionadas a las keywords que se encuentran enlistadas. REGLA ESTRICTA: La nota debe tratar sobre el sector salud/farmacéutico nacional. Rechazar policiales aislados, accidentes o casos clínicos individuales." },
+            { "id": "bms_tema_3", "nombre": "Propiedad Intelectual / Biosimilares", "nombre_largo": "Propiedad Intelectual / Biosmilares", "img_local": "banners/bms_propiedadintelectualbiosimilares.jpg", "img_url": "https://drive.google.com/file/d/12A4oDRQ7BlmY_zop1a0ThahV1JOFQ8vk/view", 
+            "rss": [
+            "https://news.google.com/rss/search?q=Biosimilares+OR+Patentes+OR+PCT+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
+            ], 
+            "keywords": ["biosimilares", "medicamentos", "patentes", "farmacéuticas", "PCT"], "exclusiones": ["autos"], "limite": 10 },
+            { "id": "bms_tema_4", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/bms_competencia.jpg", "img_url": "https://drive.google.com/file/d/1rZfcOHZGfwsk40-L8Ti0fIlp6z6spM9G/view", 
+            "rss": [ #mayoria de busquedas en AR
+            "https://news.google.com/rss/search?q=Elea+OR+%22Laboratorio+Bag%C3%B3%22+OR+Bayer+-Leverkusen+-futbol+-champions+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=AR%20Pfizer%20OR%20Sanofi%20OR%20Novartis%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20Roche%20OR%20AstraZeneca%20OR%20GSK%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20%22Novo%20Nordisk%22%20OR%20%22Boehringer%20Ingelheim%22%20OR%20Teva%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20MSD%20OR%20Abbott%20OR%20Takeda%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=%22Eli+Lilly%22+OR+Roemmers+OR+Gador+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=Casasco+OR+Baliarda+OR+Montpellier+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=Raffo+OR+Bernab%C3%B3+OR+Andr%C3%B3maco+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=Biosidus+OR+Richmond+OR+Temis+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=Lostal%C3%B3+OR+Craveri+OR+Finadiet+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
+            ], 
+            "keywords": ["Elea", "Laboratorio Bagó", "Bayer", "Pfizer", "Sanofi", "Novartis", "Roche", "AstraZeneca", "GSK", "Novo Nordisk", "Boehringer Ingelheim", "Teva", "Merck", "MSD", "Abbott", "Takeda", "Eli Lilly", "Roemmers", "Gador", "Baliarda", "Montpellier", "Raffo", "Bernabó", "Andrómaco", "Biosidus", "Richmond", "Temis", "Lostaló", "Craveri", "Finadiet"], 
+            "exclusiones": ["Bayer Leverkusen", "Bayern", "fútbol", "futbol", "champions", "bundesliga", "goles", "jugador", "partido", "Xabi Alonso"], "limite": 10,
+            "contexto_ia": "El interés es sobre los laboratorios listados. REGLA ESTRICTA: Las noticias deben estar focalizadas en noticias en las que se hable sobre algun laboratorio enlistado, ya sean medicamentos, vacunas, campañas o pases corporativos. Rechazar noticias de filiales, inversiones o lanzamientos exclusivos en otros países (ej. España, México, Europa, EEUU)." },
             { "id": "bms_tema_5", "nombre": "Areas Terapeuticas", "nombre_largo": "Áreas Terapéuticas", "img_local": "banners/bms_areasterapeuticas.jpg", "img_url": "https://drive.google.com/file/d/1HXv0m__Xixd0NgE607eAWrVXFT73Xdy2/view", "es_separador": True, "rss": [], "keywords": [], "exclusiones": [], "limite": 0 },
-            { "id": "bms_tema_6", "nombre": "Onco-Hematologia", "nombre_largo": "Onco-Hematologia", "img_local": "banners/bms_oncohematologia.jpg", "img_url": "https://drive.google.com/file/d/1o8SGZMYZSZSsxqcYCZKPEhwWAh9T8sVx/view", "rss": ["https://news.google.com/rss/search?q=c%C3%A1ncer%20OR%20metastasis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=tumores%20OR%20melanoma%20OR%20linfoma%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["cáncer", "cancer", "metástasis", "metastasis", "tumores", "tumor", "melanoma", "linfoma"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_7", "nombre": "CAR-T", "nombre_largo": "CAR-T", "img_local": "banners/bms_cart.jpg", "img_url": "https://drive.google.com/file/d/1B6Rt1GJRhH2opmm9vnmTaLrRu8vVS0dW/view", "rss": ["https://news.google.com/rss/search?q=CAR-T%20OR%20%22terapia%20g%C3%A9nica%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=inmunoterapia%20linfocitos%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["CAR-T", "CAR T", "inmunoterapia", "terapia génica", "linfocitos T", "células cancerosas"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_8", "nombre": "Cardiología", "nombre_largo": "Cardiología", "img_local": "banners/bms_cardiologia.jpg", "img_url": "https://drive.google.com/file/d/1JtpFFXjYVcr-4nCyE_XaxLtfmobCp2_M/view", "rss": ["https://news.google.com/rss/search?q=ACV%20OR%20cardiolog%C3%ADa%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=cardiovascular%20OR%20%22presi%C3%B3n%20arterial%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["ACV", "cardiología", "cardiologia", "cardiovascular", "presión arterial", "presion arterial", "cardíaco", "cardiaco", "infarto"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_9", "nombre": "Artritis", "nombre_largo": "Artritis", "img_local": "banners/bms_artritis.jpg", "img_url": "https://drive.google.com/file/d/1qaHdfmIDmmgnDRj9VhJsU5qYuKw6B_ug/view", "rss": ["https://news.google.com/rss/search?q=artritis%20OR%20articulaciones%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22enfermedades%20reumaticas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["artritis", "articulaciones", "enfermedades reumáticas", "enfermedad reumática", "reuma"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_10", "nombre": "Psoriasis", "nombre_largo": "Psoriasis", "img_local": "banners/bms_psoriasis.jpg", "img_url": "https://drive.google.com/file/d/1VEZeFSymEKe5vHrNKLD08419502G_nqH/view", "rss": ["https://news.google.com/rss/search?q=psoriasis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["psoriasis"], "exclusiones": [], "limite": 10 },
-            { "id": "bms_tema_11", "nombre": "Trasplante", "nombre_largo": "Trasplante", "img_local": "banners/bms_trasplante.jpg", "img_url": "https://drive.google.com/file/d/1pHzriblnIvQl44uQrooGJXI4qGIE_YLU/view", "rss": ["https://news.google.com/rss/search?q=trasplante%20OR%20trasplantes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["trasplante", "trasplantes", "donación de órganos", "donacion de organos"], "exclusiones": [], "limite": 10 }
+            { "id": "bms_tema_6", "nombre": "Onco-Hematologia", "nombre_largo": "Onco-Hematologia", "img_local": "banners/bms_oncohematologia.jpg", "img_url": "https://drive.google.com/file/d/1o8SGZMYZSZSsxqcYCZKPEhwWAh9T8sVx/view", 
+            "rss": [
+            "https://news.google.com/rss/search?q=AR%20C%C3%A1ncer%20OR%20oncolog%C3%ADa%20OR%20Onco-hematologia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20Linfoma%20OR%20Tumor%20OR%20%22Octubre%20Rosa%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20Lalcec%20OR%20FUCA%20OR%20Macma%20OR%20AAOC%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+            ],
+            "keywords": ["cáncer", "cancer", "metástasis", "metastasis", "tumores", "tumor", "melanoma", "linfoma", "oncología", "linfoma", "octubre rosa", "lalcec", "Lalcec", "FUCA", "Macma", "AAOC"], "exclusiones": [], "limite": 10,
+            "contexto_ia": "El interés es sobre avances médicos, tratamientos, tumores, linfomas y campañas de prevención del cáncer. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico, DEBE SER APROBADA. Solo rechazar si la noticia trata de regulaciones, sistemas de salud o estadísticas exclusivas de otros países (ej. hospitales de España)." },
+            { "id": "bms_tema_7", "nombre": "CAR-T", "nombre_largo": "CAR-T", "img_local": "banners/bms_cart.jpg", "img_url": "https://drive.google.com/file/d/1B6Rt1GJRhH2opmm9vnmTaLrRu8vVS0dW/view", 
+            "rss": [
+            "https://news.google.com/rss/search?q=CAR-T+OR+%22terapia+g%C3%A9nica%22+OR+inmunoterapia+OR+linfocitos+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
+            ], 
+            "keywords": ["CAR-T", "CAR T", "inmunoterapia", "terapia génica", "linfocitos T", "células cancerosas"], "exclusiones": [], "limite": 10 },
+            { "id": "bms_tema_8", "nombre": "Cardiología", "nombre_largo": "Cardiología", "img_local": "banners/bms_cardiologia.jpg", "img_url": "https://drive.google.com/file/d/1JtpFFXjYVcr-4nCyE_XaxLtfmobCp2_M/view", 
+            "rss": [
+            "https://news.google.com/rss/search?q=AR%20Cardiovascular%20OR%20Cardiolog%C3%ADa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20%22Infarto%22%20OR%20%22Insuficiencia%20card%C3%ADaca%22%20OR%20%22Arritmia%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
+            "https://news.google.com/rss/search?q=AR%20%22Fibrilaci%C3%B3n%20auricular%22%20OR%20%22Hipertensi%C3%B3n%20arterial%22%20OR%20Cardiopat%C3%ADa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
+            "https://news.google.com/rss/search?q=AR%20%22Angina%20de%20pecho%22%20OR%20%22ACV%22%20OR%20Trombosis%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
+            "https://news.google.com/rss/search?q=AR%20Aterosclerosis%20OR%20Colesterol%20OR%20Hipercolesterolemia%20OR%20miocardiopat%C3%ADa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419" #AR
+            ], 
+            "keywords": ["ACV", "cardiología", "cardiologia", "cardiovascular", "salud cardiovascular", "enfermedades cardiovasculares", "corazón", "salud del corazón", "prevensión cardiovascular", "riesgo cardiovascular", "infarto", "infarto agudo de miocardio", "insuficiencia cardíaca", "arritmia", "Fibrilación auricular", "hipertensión arterial", "cardiopatía", "cardiopatía isquémica", "angina de pecho", "accidente cerebrovascular", "trombosis", "aterosclerosis", "colesterol", "hipercolesterolemia", "miocardiopatía", "presión arterial", "presion arterial", "cardíaco", "cardiaco", "infarto"], "exclusiones": [], "limite": 10,
+            "contexto_ia": "El interés es sobre cardiología, afecciones cardiovasculares y prevención médica. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico, DEBE SER APROBADA. Solo rechazar si la noticia trata de regulaciones, sistemas de salud o estadísticas exclusivas de otros países." },
+            { "id": "bms_tema_9", "nombre": "Artritis", "nombre_largo": "Artritis", "img_local": "banners/bms_artritis.jpg", "img_url": "https://drive.google.com/file/d/1qaHdfmIDmmgnDRj9VhJsU5qYuKw6B_ug/view", 
+            "rss": [
+            "https://news.google.com/rss/search?q=Artritis+OR+Artrosis+OR+%22Enfermedades+reum%C3%A1ticas%22+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=Reumatolog%C3%ADa+OR+%22Salud+articular%22+OR+Articulaciones+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=Osteoartritis+OR+Espondiloartritis+OR+%22Artritis+reactiva%22+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
+            ], 
+            "keywords": ["artritis", "articulaciones", "enfermedades reumáticas", "enfermedad reumática", "reuma", "artrotis", "reumatología", "salud articular", "enfermedades articulares", "dolor articular", "inflamación articular", "artritis reumatoide", "artritis psoriásica", "osteoartritis", "artritis idiopática juvenil", "espondiloartritis", "artritis reactiva", "gota"], "exclusiones": [], "limite": 10,
+            "contexto_ia": "El interés es sobre artritis, artrosis, enfermedades reumáticas y prevención. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico, DEBE SER APROBADA. Solo rechazar si la noticia trata de regulaciones, sistemas de salud o estadísticas exclusivas de otros países." },
+            { "id": "bms_tema_10", "nombre": "Psoriasis", "nombre_largo": "Psoriasis", "img_local": "banners/bms_psoriasis.jpg", "img_url": "https://drive.google.com/file/d/1VEZeFSymEKe5vHrNKLD08419502G_nqH/view", 
+            "rss": [
+            "https://news.google.com/rss/search?q=psoriasis+OR+%22Enfermedad+psori%C3%A1sica%22+OR+%22Salud+de+la+piel%22+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
+            ], 
+            "keywords": ["psoriasis", "enfermedad psoriásica", "psoriasis crónica", "salud de la piel"], "exclusiones": [], "limite": 10,
+            "contexto_ia": "El interés es sobre psoriasis, enfermedades psoriásicas y tratamientos. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico, DEBE SER APROBADA. Solo rechazar si la noticia trata de regulaciones, sistemas de salud o estadísticas exclusivas de otros países." },
+            { "id": "bms_tema_11", "nombre": "Trasplante", "nombre_largo": "Trasplante", "img_local": "banners/bms_trasplante.jpg", "img_url": "https://drive.google.com/file/d/1pHzriblnIvQl44uQrooGJXI4qGIE_YLU/view", 
+            "rss": [
+            "https://news.google.com/rss/search?q=%22Donaci%C3%B3n+de+%C3%B3rganos%22+OR+%22Donaci%C3%B3n+de+tejidos%22+OR+Incucai+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
+            "https://news.google.com/rss/search?q=%22Procuraci%C3%B3n+de+%C3%B3rganos%22+OR+%22M%C3%A9dula+%C3%B3sea%22+OR+%22Ablaci%C3%B3n+de+%C3%B3rganos%22+OR+Trasplante+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
+            ], 
+            "keywords": ["trasplante", "trasplantes", "donación de órganos", "donacion de organos", "donación de tejidos", "tejidos", "incucai", "INCUCAI", "procuración de órganos", "médula ósea", "ablación de órganos", "trasplante"], "exclusiones": [], "limite": 10,
+            "contexto_ia": "El interés es sobre trasplantes, donación y ablación de órganos. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico/donación, DEBE SER APROBADA. Solo rechazar explícitamente si se nombra una organización o caso de donación de otro país distinto a Argentina." }
         ]
     },
     "Arredo": {
@@ -456,163 +364,10 @@ CLIENTES_CONFIG = {
     }
 }
 
-# Se incluye mars_competencia en IDS_SINTESIS para que genere Síntesis pero sin mostrar métricas en sus notas
 IDS_SINTESIS = ["exclusivas", "mars_tema_1", "bms_tema_1", "arredo_tema_1", "arredo_tema_2", "amanco_tema_1", "booking_tema_1", "mars_competencia", "bms_tema_4", "arredo_tema_6", "amanco_tema_2", "booking_tema_2"]
 
 # ====================================================================
-# COMPONENTE DE CONSOLA / MONITOR DE PROCESOS INTERACTIVO
-# ====================================================================
-class MonitorConsola:
-    def __init__(self, parent_container):
-        self.container = parent_container
-        with self.container:
-            self.scroll = ui.scroll_area().classes('w-full h-96 bg-[#0f172a] text-slate-200 p-4 rounded-xl border border-slate-800 shadow-inner font-mono text-xs')
-            with self.scroll:
-                self.content = ui.column().classes('w-full gap-1 p-0')
-
-    def push(self, msg):
-        msg_str = str(msg)
-        msg_html = re.sub(
-            r'(https?://[^\s]+)',
-            r'<a href="\1" target="_blank" rel="noopener noreferrer" class="text-sky-400 underline hover:text-sky-300 font-semibold" onclick="event.stopPropagation();">\1</a>',
-            msg_str
-        )
-
-        if "✓ SUMADA" in msg_str:
-            line_html = f'<div class="text-emerald-400 font-semibold bg-emerald-950/40 px-2 py-1 rounded border-l-4 border-emerald-500">{msg_html}</div>'
-        elif "🔀 Feed Excel" in msg_str or "🔍 Búsqueda Extra" in msg_str or "📰 Gacetilla Excel" in msg_str:
-            line_html = f'<div class="text-sky-300 bg-sky-950/40 px-2 py-1 rounded border-l-4 border-sky-500 font-semibold">{msg_html}</div>'
-        elif "EXCLUIDA" in msg_str or "OMITIDA" in msg_str or "⛔" in msg_str or "❌" in msg_str or "🌎" in msg_str or "📅" in msg_str or "🔁" in msg_str or "📜" in msg_str:
-            line_html = f'<div class="text-rose-300 bg-rose-950/30 px-2 py-1 rounded border-l-4 border-rose-600/70">{msg_html}</div>'
-        elif "🔎 ANALIZANDO SECCIÓN" in msg_str:
-            line_html = f'<div class="text-amber-300 font-bold text-sm mt-3 mb-1 border-b border-amber-500/30 pb-1">{msg_html}</div>'
-        elif "🤖 IA" in msg_str:
-            line_html = f'<div class="text-purple-300 bg-purple-950/40 px-2 py-0.5 rounded border-l-2 border-purple-500">{msg_html}</div>'
-        elif "🔎 Revisando" in msg_str:
-            line_html = f'<div class="text-slate-300 px-2 py-0.5">{msg_html}</div>'
-        else:
-            line_html = f'<div class="text-slate-200 px-2 py-0.5">{msg_html}</div>'
-
-        with self.content:
-            ui.html(line_html)
-        self.scroll.scroll_to(percent=1.0)
-
-    def clear(self):
-        self.content.clear()
-
-# ====================================================================
-# CLASES Y ESTADO GLOBAL
-# ====================================================================
-class ObjetoManual:
-    def __init__(self, url, titulo_texto="Nota Manual", desc_texto=""):
-        class ElementoTexto:
-            def __init__(self, texto): self.text = texto
-        self.link = ElementoTexto(url)
-        self.title = ElementoTexto(titulo_texto)
-        self.description = ElementoTexto(desc_texto)
-        self.pubDate = ElementoTexto("")
-        self.source = ElementoTexto("Manual")
-
-class AppState:
-    def __init__(self):
-        self.cliente = list(CLIENTES_CONFIG.keys())[0]
-        self.timeframe = "1d"
-        self.extra_searches = [{"q": "", "sec": ""}]
-        self.links_manuales = {}
-        self.graficas = {}
-        self.log_box = None
-        self.log_container = None
-        self.timer_label = None
-        self.status_chip = None
-        self.last_data_editor = None
-        self.last_data_auditoria = None
-        self.init_secciones()
-
-    def init_secciones(self):
-        config = CLIENTES_CONFIG[self.cliente]
-        self.links_manuales = {sec['id']: "" for sec in config["secciones"] if not sec.get('es_separador')}
-        self.graficas = {sec['id']: [{"medio": "", "titulo": "", "fecha": datetime.datetime.now().strftime("%Y-%m-%d"), "link": "", "bajada": ""}] for sec in config["secciones"] if not sec.get('es_separador')}
-        
-    def add_grafica(self, sec_id):
-        self.graficas[sec_id].append({"medio": "", "titulo": "", "fecha": datetime.datetime.now().strftime("%Y-%m-%d"), "link": "", "bajada": ""})
-        
-    def add_extra_search(self):
-        self.extra_searches.append({"q": "", "sec": ""})
-
-state = AppState()
-
-# ====================================================================
-# CARGA Y SINCRONIZACIÓN DE EXCEL (MÉTRICAS, FEEDS, GACETILLAS Y FEEDS GLOBALES)
-# ====================================================================
-def sincronizar_base_medios(cliente_nombre, logger):
-    global GACETILLAS_CACHE
-    logger("📁 Sincronizando Base de Medios, Feeds y Gacetillas desde Google Drive...")
-    df_medios = None
-    df_feeds = None
-    df_gacetillas = None
-    df_feeds_globales = None
-    try:
-        match = re.search(r'/d/([a-zA-Z0-9-_]+)', LINK_EXCEL_DRIVE)
-        if match:
-            file_id = match.group(1)
-            url_descarga = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
-            req_excel = urllib.request.Request(url_descarga, headers={'User-Agent': 'Mozilla/5.0'})
-            resp_excel = urllib.request.urlopen(req_excel)
-            xls_cargado = pd.ExcelFile(io.BytesIO(resp_excel.read()))
-            
-            df_medios = pd.read_excel(xls_cargado, sheet_name=0)
-            
-            hoja_cliente = CLIENTES_CONFIG[cliente_nombre].get("hoja_excel", cliente_nombre)
-            if hoja_cliente in xls_cargado.sheet_names:
-                df_feeds = pd.read_excel(xls_cargado, sheet_name=hoja_cliente)
-                logger(f"✅ Hoja del cliente '{hoja_cliente}' cargada correctamente.")
-            else:
-                logger(f"⚠️ No se encontró la hoja '{hoja_cliente}' en el Excel del Drive.")
-
-            # Cargar hoja "Gacetillas 2026"
-            hoja_gacetillas = next((s for s in xls_cargado.sheet_names if "gacetilla" in remover_acentos(s.lower())), None)
-            if hoja_gacetillas:
-                df_gacetillas = pd.read_excel(xls_cargado, sheet_name=hoja_gacetillas)
-                GACETILLAS_CACHE = df_gacetillas
-                logger(f"✅ Hoja de Gacetillas ('{hoja_gacetillas}') cargada correctamente.")
-
-            # Cargar hoja "FEEDS GLOBALES"
-            hoja_globales = next((s for s in xls_cargado.sheet_names if "feeds globales" in remover_acentos(s.lower()) or "feed global" in remover_acentos(s.lower()) or "globales" in remover_acentos(s.lower())), None)
-            if hoja_globales:
-                df_feeds_globales = pd.read_excel(xls_cargado, sheet_name=hoja_globales)
-                logger(f"✅ Hoja de Feeds Globales ('{hoja_globales}') cargada correctamente.")
-                
-            logger("✅ Base de Medios sincronizada correctamente.")
-    except Exception as e:
-        logger(f"⚠️ No se pudo descargar la Base de Medios: {e}")
-    return df_medios, df_feeds, df_gacetillas, df_feeds_globales
-
-def extraer_todos_rss_excel(df_feeds):
-    """Extrae todos los enlaces RSS/URL presentes en la pestaña del cliente dentro del Excel."""
-    if df_feeds is None or df_feeds.empty:
-        return []
-    urls_encontradas = []
-    for col in df_feeds.columns:
-        for val in df_feeds[col].dropna():
-            v_str = str(val).strip()
-            if v_str.startswith("http"):
-                urls_encontradas.append(v_str)
-    return list(dict.fromkeys(urls_encontradas))
-
-def extraer_feeds_globales(df_globales):
-    """Extrae los feeds RSS/URL de la primera columna de la hoja FEEDS GLOBALES."""
-    if df_globales is None or df_globales.empty:
-        return []
-    urls_encontradas = []
-    primer_col = df_globales.columns[0]
-    for val in df_globales[primer_col].dropna():
-        v_str = str(val).strip()
-        if v_str.startswith("http"):
-            urls_encontradas.append(v_str)
-    return list(dict.fromkeys(urls_encontradas))
-
-# ====================================================================
-# MOTOR DE SCRAPING Y EXTRACCIÓN DE METADATA
+# MOTOR DE SCRAPING Y EXTRACCIÓN DE METADATA (FUNCIONES AUXILIARES)
 # ====================================================================
 def formatear_fecha(texto_fecha):
     try:
@@ -633,19 +388,49 @@ def corregir_mojibake(texto):
     for mal, bien in reemplazos.items(): texto = (texto or "").replace(mal, bien)
     return texto
 
+def limpiar_titulo(t):
+    if not t: return "Sin Título"
+    t = re.sub(r'\s+[-|::]+\s+[^|:-]{1,35}$', '', t)
+    return t.strip()
+
 def limpiar_nombre_medio(medio):
     if not medio: return "Portal Argentino"
     texto = str(medio).strip()
     texto = re.sub(r'\.(com|net|org|info|gob|edu|tv)(\.[a-z]{2})?$', '', texto, flags=re.IGNORECASE)
-    texto = re.sub(r'\.(ar|es|mx|cl|co)$', '', texto, flags=re.IGNORECASE)
-    return texto.title()
+    texto = re.sub(r'\.(ar|es|mx|cl|co|pe|uy|py)$', '', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', texto)
+    texto = texto.replace('-', ' ').replace('_', ' ')
+    
+    # Agregamos "somos", "radio", "salud" y "cure" al separador automático de prefijos
+    texto = re.sub(r'^(el|la|los|las|diario|infobae|portal|noticias|somos|radio|salud|cure)(?=[a-z]{3,})', r'\1 ', texto, flags=re.IGNORECASE)
+    texto = re.sub(r'\s+', ' ', texto).strip()
+    texto_final = texto.title()
+    
+    # Reemplazos exactos forzados para los casos más rebeldes
+    correcciones = {
+        "Curecompass": "Cure Compass",
+        "Somosjujuy": "Somos Jujuy",
+        "Radiotucuman": "Radio Tucumán",
+        "Saludnews24": "Salud News 24"
+    }
+    return correcciones.get(texto_final, texto_final)
 
 def limpiar_basura_periodistica(texto):
     texto = texto or ""
     texto = re.sub(r'(http[s]?://\S+|www\.\S+)', '', texto, flags=re.IGNORECASE)
     for p in [r'Añadir .*? a tus preferidos en Google', r'Seguinos en .*', r'PUBLICIDAD', r'\d{1,2}/\d{1,2}/\d{2,4}\s*\|\s*\d{1,2}:\d{2}']:
         texto = re.sub(p, '', texto, flags=re.IGNORECASE)
+        
     return " ".join(texto.split())
+
+def url_limpia_para_duplicados(url):
+    if not url: return ""
+    u = url.lower().strip()
+    u = u.split('?')[0].split('#')[0]
+    u = re.sub(r'^https?://', '', u)
+    u = re.sub(r'^www\.', '', u)
+    u = u.rstrip('/')
+    return u
 
 def contiene_palabra_clave(texto, palabras_clave):
     if not palabras_clave: return True
@@ -659,38 +444,54 @@ def contiene_exclusion(texto, exclusiones):
     t_norm = remover_acentos(texto_limpio.lower())
     return any(re.search(r'\b' + re.escape(remover_acentos(ex.lower())) + r'\b', t_norm, re.IGNORECASE) for ex in exclusiones)
 
-def evaluar_relevancia_ia(texto, cliente_nombre, nombre_seccion, palabras_clave, exclusiones, logger=None):
-    """Confirma con IA (Groq) si una nota de SECCIÓN GENERAL es relevante para el cliente/tema y devuelve el motivo si la excluye."""
+def evaluar_relevancia_ia_lotes(lote_notas, cliente_nombre, nombre_seccion, palabras_clave, exclusiones, logger=None, contexto_ia=""):
+    if not lote_notas: return {}
+    
     try:
         kws = ", ".join(palabras_clave) if palabras_clave else "sin palabras clave específicas"
         excl = ", ".join(exclusiones) if exclusiones else "ninguna"
-        prompt = (f'Sos un analista de prensa. Cliente: "{cliente_nombre}". Sección: "{nombre_seccion}".\n'
-                   f'Palabras clave de interés de esta sección: {kws}.\n'
-                   f'Temas que NO le interesan al cliente aunque compartan alguna palabra: {excl}.\n'
-                   f'Esta nota ya contiene alguna palabra clave. Confirmá si el TEMA general de la nota '
-                   f'realmente se relaciona con el interés del cliente en esta sección.\n\n'
-                   f'Si es RELEVANTE respondé exactamente: SI\n'
-                   f'Si NO es relevante respondé exactamente: NO: [motivo breve de 1 frase del por qué no aplica al cliente]\n\n'
-                   f'Texto: {texto[:1200]}')
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-            json={"model": "openai/gpt-oss-20b", "messages": [{"role": "user", "content": prompt}],
-                  "temperature": 0, "max_tokens": 250, "reasoning_effort": "low"},
-            timeout=15
-        )
-        resp.raise_for_status()
-        resultado_crudo = resp.json()["choices"][0]["message"]["content"].strip()
-        if logger: logger(f"    🤖 IA respondió: '{resultado_crudo}'")
         
-        if resultado_crudo.upper().startswith("NO"):
-            partes = resultado_crudo.split(":", 1)
-            motivo = partes[1].strip() if len(partes) > 1 else "Tema no alineado al contexto general de la sección."
-            return False, motivo
-        return True, "Relevante"
+        prompt = (f'Sos un analista de prensa. Cliente: "{cliente_nombre}". Sección: "{nombre_seccion}".\n'
+                  f'Palabras clave de interés: {kws}.\n'
+                  f'Temas que NO le interesan: {excl}.\n')
+        
+        if contexto_ia:
+            prompt += f'REGLA ESTRICTA PARA ESTA SECCIÓN: {contexto_ia}\n\n'
+            
+        prompt += (f'Evaluá las siguientes {len(lote_notas)} notas numeradas. Confirmá si el TEMA general de cada nota '
+                   f'realmente se relaciona con el interés del cliente.\n'
+                   f'Respondé EXACTAMENTE con este formato para cada nota (un renglón por nota):\n'
+                   f'0: SI\n'
+                   f'1: NO: [motivo breve de 1 frase del por qué no aplica]\n\n'
+                   f'Notas a evaluar:\n')
+                   
+        for item in lote_notas:
+            texto_reducido = item['texto'][:600].replace('\n', ' ')
+            prompt += f"{item['id']}: {texto_reducido}\n"
+            
+        resp = llamar_groq({"model": "openai/gpt-oss-20b", "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0, "max_tokens": 400, "reasoning_effort": "low"}, timeout=25, logger=logger)
+        resultado_crudo = resp.json()["choices"][0]["message"]["content"].strip()
+        if logger: logger(f"    🤖 IA analizó bloque de {len(lote_notas)} notas juntas.")
+        
+        resultados = {}
+        for linea in resultado_crudo.split('\n'):
+            linea = linea.strip()
+            if not linea: continue
+            match = re.search(r'^(\d+)[:\.-]?\s*(SI|NO)(?:[:\s]+(.*))?', linea, re.IGNORECASE)
+            if match:
+                n_id = match.group(1)
+                es_si = match.group(2).upper() == 'SI'
+                motivo = match.group(3).strip() if match.group(3) else ("Tema no alineado." if not es_si else "Relevante")
+                resultados[n_id] = (es_si, motivo)
+        
+        for item in lote_notas:
+            if str(item['id']) not in resultados:
+                resultados[str(item['id'])] = (True, "Aprobada por fallback (IA no retornó ID)")
+        return resultados
     except Exception as e:
-        if logger: logger(f"    ⚠️ Filtro IA no disponible ({e}), se conserva la nota por defecto.")
-        return True, "Filtro IA no disponible"
+        if logger: logger(f"    ⚠️ Filtro IA Lotes falló ({e}). Se conservan por defecto.")
+        return {str(item['id']): (True, "Filtro IA no disponible") for item in lote_notas}
 
 _ABREVIATURAS = ['Sr.', 'Sra.', 'Dr.', 'Dra.', 'Lic.', 'Ing.', 'Prof.', 'Gral.', 'Av.', 'Cía.', 'EE.UU.', 'S.A.']
 def _proteger_abreviaturas(texto):
@@ -763,6 +564,7 @@ def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec
 
     texto_final = ""
     
+    # 1. Recuperamos el resumen base EXACTAMENTE igual que siempre
     if resumen_meta_limpio and len(resumen_meta_limpio.strip()) > 15:
         texto_final = resumen_meta_limpio.strip()
     elif oracion and not oracion.startswith("[Nota inaccesible"):
@@ -775,6 +577,23 @@ def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec
         elif r_rss and len(r_rss.strip()) > 15:
             texto_final = re.sub(r'<[^>]+>', '', r_rss).strip()
 
+    # 2. Lógica para sumar la oración en Competencia
+    es_competencia = "competencia" in str(sec_id).lower() or str(sec_id) == "bms_tema_4"
+    
+    if es_competencia and oracion and not oracion.startswith("[Nota inaccesible"):
+        oracion_limpia = re.sub(r'<[^>]+>', '', oracion).strip()
+        texto_limpio = re.sub(r'<[^>]+>', '', texto_final).strip()
+        
+        # Comparamos para no duplicar si la oración resultó ser idéntica a la bajada
+        if oracion_limpia and oracion_limpia not in texto_limpio and texto_limpio not in oracion_limpia:
+            texto_final = f"{texto_final}<br><br>{oracion.strip()}"
+        elif not texto_final:
+            texto_final = oracion.strip()
+
+    # Convertimos el feo [...] en puntos suspensivos limpios sin borrar texto
+    texto_final = texto_final.replace(" [...]", "...").replace("[...]", "...")
+
+    # 3. Retorno
     if sec_id in secciones_destacadas:
         if texto_final:
             return f"<p>{texto_final}</p>"
@@ -791,31 +610,62 @@ def buscar_metricas_medio(df_medios, url, medio_nombre):
     if df_medios is None or df_medios.empty:
         return alcance, tier, ad_value
 
+    cols_norm = {c: str(c).lower().strip() for c in df_medios.columns}
+    col_medios = next((c for c, norm in cols_norm.items() if 'medio' in norm), None)
+    col_alcance = next((c for c, norm in cols_norm.items() if 'alcance' in norm), None)
+    col_tier = next((c for c, norm in cols_norm.items() if 'tier' in norm), None)
+    col_advalue = next((c for c, norm in cols_norm.items() if 'ad' in norm and 'value' in norm), None)
+
+    if not col_medios:
+        return alcance, tier, ad_value 
+
     netloc_clean = urlparse(url).netloc.replace("www.", "").split('.')[0].lower()
     medio_norm = limpiar_nombre_medio(medio_nombre).lower()
+    medio_orig_lower = str(medio_nombre).strip().lower()
     
-    medios_col = df_medios['medios'].astype(str).str.strip().str.lower()
-    fila = df_medios[(medios_col == netloc_clean) | (medios_col == medio_norm)]
+    def super_limpiar(texto):
+        t = str(texto).lower().strip()
+        t = re.sub(r'\.(com|net|org|ar|es|mx|cl|co|pe|uy|py|info|tv).*$', '', t)
+        t = re.sub(r'[^a-z0-9]', '', t)
+        return t
+
+    medios_col_raw = df_medios[col_medios].astype(str)
+    medios_col_super_clean = medios_col_raw.apply(super_limpiar)
+
+    n_clean_se = super_limpiar(netloc_clean)
+    m_norm_se = super_limpiar(medio_norm)
+    m_orig_se = super_limpiar(medio_orig_lower)
+
+    fila = df_medios[
+        (medios_col_raw.str.strip().str.lower() == netloc_clean) | 
+        (medios_col_raw.str.strip().str.lower() == medio_norm) | 
+        (medios_col_raw.str.strip().str.lower() == medio_orig_lower)
+    ]
     
+    if fila.empty:
+        fila = df_medios[
+            (medios_col_super_clean == n_clean_se) | 
+            (medios_col_super_clean == m_norm_se) | 
+            (medios_col_super_clean == m_orig_se)
+        ]
+        
+    if fila.empty and len(m_norm_se) > 3:
+        mask = medios_col_super_clean.apply(lambda x: len(x) > 3 and (x in m_norm_se or m_norm_se in x))
+        fila = df_medios[mask]
+
     if not fila.empty:
-        alcance = str(fila['alcance'].iloc[0])
-        tier = str(fila['tier'].iloc[0])
-        ad_value = str(fila['advalue'].iloc[0])
+        if col_alcance: alcance = str(fila[col_alcance].iloc[0])
+        if col_tier: tier = str(fila[col_tier].iloc[0])
+        if col_advalue: ad_value = str(fila[col_advalue].iloc[0])
         
     return alcance, tier, ad_value
 
 def sort_key_final(n, sec_id):
-    """
-    Criterio de ordenamiento:
-      1. Notas Gráficas SIEMPRE primeras (es_grafica = 0).
-      2. Mismo Medio: Orden descendente por fecha (más recientes primero: -ts_fecha).
-    """
     es_grafica = 0 if n['tipo_medio'] == 'Gráfica' else 1
     medio_lower = str(n['medio']).lower()
     ts_fecha = parse_fecha_sortable(n.get('fecha', ''))
     
-    # mars_competencia NO ordena por métricas, se ordena alfabéticamente
-    if sec_id in IDS_SINTESIS and sec_id != 'mars_competencia':
+    if sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4']:
         redes = ['instagram', 'facebook', 'threads', 'x.com', 'twitter', 'tiktok', 'linkedin']
         is_social = any(sm in medio_lower for sm in redes)
         
@@ -844,21 +694,496 @@ def sort_key_final(n, sec_id):
     else:
         return (es_grafica, medio_lower, -ts_fecha)
 
-def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, historial_previo, solo_manuales=False):
+def es_tier_1_o_2(tier_val):
+    try:
+        t_clean = str(tier_val).lower().replace('tier', '').strip()
+        if t_clean in ['1', '2', '1.0', '2.0']:
+            return True
+    except Exception:
+        pass
+    return False
+
+def parse_fecha_sortable(texto_fecha):
+    if not texto_fecha: return 0
+    t_str = str(texto_fecha).strip()
+    try:
+        dt = datetime.datetime.strptime(t_str, "%d/%m/%Y")
+        return dt.timestamp()
+    except Exception:
+        try:
+            dt = datetime.datetime.strptime(t_str, "%Y-%m-%d")
+            return dt.timestamp()
+        except Exception:
+            return 0
+
+# ====================================================================
+# GESTIÓN DE HISTORIAL ANTIDUPLICADOS POR CLIENTE (EXCEL Y JSON)
+# ====================================================================
+def cargar_historial_cliente(cliente_nombre):
+    links_historial = set()
+    sheet_name = cliente_nombre[:30]
+
+    if os.path.exists(HISTORIAL_EXCEL):
+        try:
+            xls = pd.ExcelFile(HISTORIAL_EXCEL)
+            if sheet_name in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sheet_name)
+                for col in df.columns:
+                    for val in df[col].dropna():
+                        v_str = str(val).strip().lower()
+                        if v_str.startswith("http"):
+                            links_historial.add(v_str)
+        except Exception as e:
+            print(f"⚠️ Error al leer historial Excel para {cliente_nombre}: {e}")
+
+    if os.path.exists(HISTORIAL_JSON):
+        try:
+            with open(HISTORIAL_JSON, "r", encoding="utf-8") as f:
+                data_json = json.load(f)
+                if isinstance(data_json, dict):
+                    client_links = data_json.get(cliente_nombre, [])
+                    for l in client_links:
+                        links_historial.add(str(l).strip().lower())
+        except Exception as e:
+            print(f"⚠️ Error al leer historial JSON: {e}")
+
+    return links_historial
+
+def guardar_en_historial_excel(cliente_nombre, data_auditoria):
+    try:
+        sheets_dict = {}
+        if os.path.exists(HISTORIAL_EXCEL):
+            try:
+                xls = pd.ExcelFile(HISTORIAL_EXCEL)
+                for sheet in xls.sheet_names:
+                    sheets_dict[sheet] = pd.read_excel(xls, sheet_name=sheet)
+            except Exception:
+                sheets_dict = {}
+
+        sheet_name = cliente_nombre[:30]
+        
+        if sheet_name in sheets_dict:
+            df_client = sheets_dict[sheet_name]
+        else:
+            df_client = pd.DataFrame()
+
+        secciones_dict = {}
+        for col in df_client.columns:
+            secciones_dict[col] = [str(x).strip() for x in df_client[col].dropna() if str(x).strip()]
+
+        nuevos_links_json = []
+        for sec in data_auditoria:
+            sec_nombre = sec['nombre']
+            if sec_nombre not in secciones_dict:
+                secciones_dict[sec_nombre] = []
+            
+            for ev in sec.get('evaluaciones', []):
+                if ev.get('estado') == 'SUMADA' and ev.get('link'):
+                    link_orig_clean = str(ev['link']).strip()
+                    nuevos_links_json.append(link_orig_clean.lower())
+
+                    link_excel = str(ev.get('link_destino') or ev.get('link')).strip()
+                    if link_excel and link_excel not in secciones_dict[sec_nombre]:
+                        secciones_dict[sec_nombre].append(link_excel)
+                        nuevos_links_json.append(link_excel.lower())
+
+        max_len = max([len(v) for v in secciones_dict.values()], default=0)
+        df_actualizado = pd.DataFrame()
+        for col_name, links_list in secciones_dict.items():
+            padded = links_list + [None] * (max_len - len(links_list))
+            df_actualizado[col_name] = padded
+
+        sheets_dict[sheet_name] = df_actualizado
+
+        with pd.ExcelWriter(HISTORIAL_EXCEL, engine='openpyxl') as writer:
+            for s_name, df_sheet in sheets_dict.items():
+                df_sheet.to_excel(writer, sheet_name=s_name, index=False)
+
+        data_json = {}
+        if os.path.exists(HISTORIAL_JSON):
+            try:
+                with open(HISTORIAL_JSON, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        data_json = loaded
+            except Exception:
+                data_json = {}
+
+        client_set = set(data_json.get(cliente_nombre, []))
+        client_set.update(nuevos_links_json)
+        data_json[cliente_nombre] = list(client_set)
+
+        with open(HISTORIAL_JSON, "w", encoding="utf-8") as f:
+            json.dump(data_json, f, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        print(f"⚠️ Error al guardar en historial Excel: {e}")
+
+def extraer_gacetilla_mas_reciente(df_gacetillas, cliente_nombre):
+    if df_gacetillas is None or df_gacetillas.empty:
+        return None
+    try:
+        cols = {remover_acentos(str(c).lower().strip()): c for c in df_gacetillas.columns}
+        
+        col_cliente = next((orig for k, orig in cols.items() if 'cliente' in k), None)
+        col_fecha = next((orig for k, orig in cols.items() if 'fecha' in k or 'date' in k), None)
+        col_gacetilla = next((orig for k, orig in cols.items() if 'gacetilla' in k or 'titulo' in k or 'frase' in k or 'busqueda' in k or 'tema' in k), None)
+        
+        if col_cliente and col_gacetilla:
+            cli_norm = remover_acentos(str(cliente_nombre).lower().strip())
+            df_sub = df_gacetillas[df_gacetillas[col_cliente].astype(str).apply(lambda x: cli_norm in remover_acentos(x.lower()))].copy()
+            if not df_sub.empty:
+                if col_fecha:
+                    df_sub['fecha_dt'] = pd.to_datetime(df_sub[col_fecha], dayfirst=True, errors='coerce')
+                    df_sub = df_sub.sort_values('fecha_dt', ascending=False)
+                texto = str(df_sub[col_gacetilla].iloc[0]).strip()
+                if texto and texto.lower() != 'nan':
+                    return texto
+        
+        col_cli_direct = next((orig for k, orig in cols.items() if remover_acentos(str(cliente_nombre).lower()) in k or k in remover_acentos(str(cliente_nombre).lower())), None)
+        if col_cli_direct:
+            vals = [str(v).strip() for v in df_gacetillas[col_cli_direct].dropna().tolist() if str(v).strip() and str(v).lower() != 'nan']
+            if vals:
+                return vals[-1]
+    except Exception as e:
+        print(f"Error parseando gacetillas: {e}")
+        
+    return None
+
+def obtener_gacetilla_cliente_cached(cliente_nombre):
+    global GACETILLAS_CACHE
+    if GACETILLAS_CACHE is None:
+        try:
+            match = re.search(r'/d/([a-zA-Z0-9-_]+)', LINK_EXCEL_DRIVE)
+            if match:
+                file_id = match.group(1)
+                url_descarga = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
+                req_excel = urllib.request.Request(url_descarga, headers={'User-Agent': 'Mozilla/5.0'})
+                resp_excel = urllib.request.urlopen(req_excel)
+                xls_cargado = pd.ExcelFile(io.BytesIO(resp_excel.read()))
+                hoja_gacetillas = next((s for s in xls_cargado.sheet_names if "gacetilla" in remover_acentos(s.lower())), None)
+                if hoja_gacetillas:
+                    GACETILLAS_CACHE = pd.read_excel(xls_cargado, sheet_name=hoja_gacetillas)
+        except Exception as e:
+            print(f"Error cargando gacetillas cache: {e}")
+
+    if GACETILLAS_CACHE is not None:
+        return extraer_gacetilla_mas_reciente(GACETILLAS_CACHE, cliente_nombre)
+    return None
+
+def es_seccion_general(sec_id, nombre_seccion):
+    sec_id_lower = str(sec_id).lower()
+    nombre_lower = remover_acentos(str(nombre_seccion).lower())
+    for kw in SECCIONES_DIRECTAS_KEYWORDS:
+        if kw in sec_id_lower or kw in nombre_lower:
+            return False
+    return True
+
+def obtener_url_fuente_rss(item):
+    try:
+        src = getattr(item, 'source', None)
+        if src is not None and hasattr(src, 'get'):
+            return str(src.get('url') or "").strip()
+    except Exception:
+        pass
+    return ""
+
+def _hostnames_en_texto(texto):
+    t = urllib.parse.unquote((texto or "")).lower()
+    hosts = []
+    for h in re.findall(r'https?://([^/\s?#]+)', t):
+        h = h.split('@')[-1].split(':')[0].strip('.')
+        if h.startswith('www.'): h = h[4:]
+        if h: hosts.append(h)
+    return hosts
+
+def _motivo_host_extranjero(host):
+    host = (host or "").strip('.').lower()
+    if host.startswith('www.'): host = host[4:]
+    if not host or '.' not in host:
+        return ""
+    for tld in DOMINIOS_EXTRANJEROS:
+        if host.endswith(tld):
+            return f"dominio {tld}"
+    for dom in DOMINIOS_EXTRANJEROS_EXACTOS:
+        if host == dom or host.endswith('.' + dom):
+            return f"portal extranjero conocido {dom}"
+    labels = host.split('.')
+    if len(labels) >= 3 and labels[0] in SUBDOMINIOS_EXTRANJEROS:
+        return f"edición de otro país ({labels[0]}.)"
+    return ""
+
+def motivo_portal_extranjero(url, medio, texto="", url_fuente=""):
+    for texto_url, etiqueta in ((url, "URL"), (url_fuente, "fuente RSS")):
+        for host in _hostnames_en_texto(texto_url):
+            m = _motivo_host_extranjero(host)
+            if m:
+                return f"{m} en {etiqueta}"
+
+    medio_lower = (medio or "").lower()
+    for token in re.findall(r'[a-z0-9-]+(?:\.[a-z0-9-]+)+', medio_lower):
+        m = _motivo_host_extranjero(token)
+        if m:
+            return f"{m} en nombre del medio"
+
+    url_lower = urllib.parse.unquote((url or "")).lower()
+    for ruta in RUTAS_EXTRANJERAS_KEYWORDS:
+        if ruta in url_lower:
+            return f"ruta {ruta}"
+
+    medio_norm = remover_acentos(medio_lower)
+    url_fuente_lower = (url_fuente or "").lower()
+    for kw in PORTALES_EXTRANJEROS_KEYWORDS:
+        if kw in medio_norm or kw in url_lower or kw in url_fuente_lower:
+            return f"portal extranjero '{kw}'"
+
+    return ""
+
+def es_portal_extranjero(url, medio, texto="", url_fuente=""):
+    return bool(motivo_portal_extranjero(url, medio, texto, url_fuente))
+
+def es_fecha_en_rango(texto_fecha, timeframe):
+    if not texto_fecha:
+        return True
+    try:
+        dt_item = email.utils.parsedate_to_datetime(texto_fecha)
+        dt_now = datetime.datetime.now(datetime.timezone.utc) if dt_item.tzinfo else datetime.datetime.now()
+        
+        dias = 1
+        if timeframe == "3d": dias = 3
+        elif timeframe in ["5d", "7d"]: dias = 5
+        
+        limite_segundos = (dias * 86400) + (4 * 3600)
+        diferencia = (dt_now - dt_item).total_seconds()
+        
+        return 0 <= diferencia <= limite_segundos
+    except Exception:
+        return True
+
+def prefiltrar_item_rss(it, timeframe, exclusiones=None, df_medios=None):
+    """v5.35: detecta en el feed (antes de clasificar/IA) notas fuera de rango o con exclusiones.
+    Devuelve 'fecha', 'exclusion' o ''. Las notas Tier 1/2 se conservan (devuelve '') para que
+    procesar_seccion las registre en la auditoría."""
+    try:
+        fecha = it.pubDate.text if getattr(it, 'pubDate', None) else ""
+        motivo = ""
+        if fecha and not es_fecha_en_rango(fecha, timeframe):
+            motivo = "fecha"
+        elif exclusiones:
+            tit = it.title.text if getattr(it, 'title', None) else ""
+            desc = it.description.text if getattr(it, 'description', None) else ""
+            if contiene_exclusion(f"{tit} {desc}", exclusiones):
+                motivo = "exclusion"
+        if not motivo:
+            return ""
+        if df_medios is not None:
+            link = it.link.text if getattr(it, 'link', None) and it.link.text else ""
+            medio = it.source.text if getattr(it, 'source', None) and it.source.text else urlparse(link).netloc.replace("www.", "").split('.')[0].capitalize()
+            _, tier, _ = buscar_metricas_medio(df_medios, link, medio)
+            if es_tier_1_o_2(tier):
+                return ""
+        return motivo
+    except Exception:
+        return ""
+
+def aplicar_prefiltro_rss(tuplas, timeframe, exclusiones, df_medios, logger, etiqueta):
+    """v5.35: filtra lista de tuplas (item, origen, feed_id): primero rango de fechas, luego exclusiones."""
+    conservadas, n_fecha, n_excl = [], 0, 0
+    for t in tuplas:
+        m = prefiltrar_item_rss(t[0], timeframe, exclusiones, df_medios)
+        if m == "fecha": n_fecha += 1
+        elif m == "exclusion": n_excl += 1
+        else: conservadas.append(t)
+    if n_fecha or n_excl:
+        logger(f"  🧹 Prefiltro {etiqueta}: {n_fecha} fuera de rango ({timeframe}) y {n_excl} por exclusiones descartadas antes de la IA.")
+    return conservadas
+
+def registrar_actividad(usuario, accion, detalles):
+    archivo_log = "registro_uso.csv"
+    archivo_existe = os.path.isfile(archivo_log)
+    fecha_hora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    with open(archivo_log, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        if not archivo_existe: 
+            writer.writerow(["Fecha y Hora", "Usuario", "Acción", "Detalles"])
+        writer.writerow([fecha_hora, usuario, accion, detalles])
+
+# ====================================================================
+# COMPONENTE DE CONSOLA / MONITOR DE PROCESOS INTERACTIVO
+# ====================================================================
+class MonitorConsola:
+    def __init__(self, parent_container):
+        self.container = parent_container
+        with self.container:
+            self.scroll = ui.scroll_area().classes('w-full h-96 bg-[#0f172a] text-slate-200 p-4 rounded-xl border border-slate-800 shadow-inner font-mono text-xs')
+            with self.scroll:
+                self.content = ui.column().classes('w-full gap-1 p-0')
+
+    def push(self, msg):
+        msg_str = str(msg)
+        msg_html = re.sub(
+            r'(https?://[^\s]+)',
+            r'<a href="\1" target="_blank" rel="noopener noreferrer" class="text-sky-400 underline hover:text-sky-300 font-semibold" onclick="event.stopPropagation();">\1</a>',
+            msg_str
+        )
+
+        if "✓ SUMADA" in msg_str:
+            line_html = f'<div class="text-emerald-400 font-semibold bg-emerald-950/40 px-2 py-1 rounded border-l-4 border-emerald-500">{msg_html}</div>'
+        elif "🔀 Feed Excel" in msg_str or "🔍 Búsqueda Extra" in msg_str or "📰 Gacetilla Excel" in msg_str:
+            line_html = f'<div class="text-sky-300 bg-sky-950/40 px-2 py-1 rounded border-l-4 border-sky-500 font-semibold">{msg_html}</div>'
+        elif "EXCLUIDA" in msg_str or "OMITIDA" in msg_str or "⛔" in msg_str or "❌" in msg_str or "🌎" in msg_str or "📅" in msg_str or "🔁" in msg_str or "📜" in msg_str or "✂️" in msg_str:
+            line_html = f'<div class="text-rose-300 bg-rose-950/30 px-2 py-1 rounded border-l-4 border-rose-600/70">{msg_html}</div>'
+        elif "🔎 ANALIZANDO SECCIÓN" in msg_str:
+            line_html = f'<div class="text-amber-300 font-bold text-sm mt-3 mb-1 border-b border-amber-500/30 pb-1">{msg_html}</div>'
+        elif "🤖 IA" in msg_str:
+            line_html = f'<div class="text-purple-300 bg-purple-950/40 px-2 py-0.5 rounded border-l-2 border-purple-500">{msg_html}</div>'
+        elif "🔎 Revisando" in msg_str or "📦" in msg_str:
+            line_html = f'<div class="text-slate-300 px-2 py-0.5">{msg_html}</div>'
+        elif "🔗 Destino" in msg_str:
+            line_html = f'<div class="text-slate-400 px-2 py-0.5 italic">{msg_html}</div>'
+        else:
+            line_html = f'<div class="text-slate-200 px-2 py-0.5">{msg_html}</div>'
+
+        with self.content:
+            ui.html(line_html)
+        self.scroll.scroll_to(percent=1.0)
+
+    def clear(self):
+        self.content.clear()
+
+# ====================================================================
+# CLASES Y ESTADO GLOBAL
+# ====================================================================
+class ObjetoManual:
+    def __init__(self, url, titulo_texto="Nota Manual", desc_texto=""):
+        class ElementoTexto:
+            def __init__(self, texto): self.text = texto
+        self.link = ElementoTexto(url)
+        self.title = ElementoTexto(titulo_texto)
+        self.description = ElementoTexto(desc_texto)
+        self.pubDate = ElementoTexto("")
+        self.source = ElementoTexto("Manual")
+
+class AppState:
+    def __init__(self):
+        self.cliente = list(CLIENTES_CONFIG.keys())[0]
+        self.timeframe = "1d"
+        self.extra_searches = [{"q": "", "sec": ""}]
+        self.links_manuales = {}
+        self.graficas = {}
+        self.log_box = None
+        self.log_container = None
+        self.timer_label = None
+        self.status_chip = None
+        self.last_data_editor = None
+        self.last_data_auditoria = None
+        # --- NUEVO ---
+        self.is_paused = False  
+        self.btn_procesar = None 
+        self.btn_pausa = None    
+        # -------------
+        self.init_secciones()
+
+    def init_secciones(self):
+        config = CLIENTES_CONFIG[self.cliente]
+        self.links_manuales = {sec['id']: "" for sec in config["secciones"] if not sec.get('es_separador')}
+        self.graficas = {sec['id']: [{"medio": "", "titulo": "", "fecha": datetime.datetime.now().strftime("%Y-%m-%d"), "link": "", "bajada": ""}] for sec in config["secciones"] if not sec.get('es_separador')}
+        
+    def add_grafica(self, sec_id):
+        self.graficas[sec_id].append({"medio": "", "titulo": "", "fecha": datetime.datetime.now().strftime("%Y-%m-%d"), "link": "", "bajada": ""})
+        
+    def add_extra_search(self):
+        self.extra_searches.append({"q": "", "sec": ""})
+
+state = AppState()
+
+# ====================================================================
+# CARGA Y SINCRONIZACIÓN DE EXCEL (MÉTRICAS, FEEDS, GACETILLAS Y FEEDS GLOBALES)
+# ====================================================================
+def sincronizar_base_medios(cliente_nombre, logger):
+    global GACETILLAS_CACHE
+    logger("📁 Sincronizando Base de Medios, Feeds y Gacetillas desde Google Drive...")
+    df_medios = None
+    df_feeds = None
+    df_gacetillas = None
+    df_feeds_globales = None
+    try:
+        match = re.search(r'/d/([a-zA-Z0-9-_]+)', LINK_EXCEL_DRIVE)
+        if match:
+            file_id = match.group(1)
+            url_descarga = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
+            req_excel = urllib.request.Request(url_descarga, headers={'User-Agent': 'Mozilla/5.0'})
+            resp_excel = urllib.request.urlopen(req_excel)
+            xls_cargado = pd.ExcelFile(io.BytesIO(resp_excel.read()))
+            
+            df_medios = pd.read_excel(xls_cargado, sheet_name=0)
+            
+            hoja_cliente = CLIENTES_CONFIG[cliente_nombre].get("hoja_excel", cliente_nombre)
+            if hoja_cliente in xls_cargado.sheet_names:
+                df_feeds = pd.read_excel(xls_cargado, sheet_name=hoja_cliente)
+                logger(f"✅ Hoja del cliente '{hoja_cliente}' cargada correctamente.")
+            else:
+                logger(f"⚠️ No se encontró la hoja '{hoja_cliente}' en el Excel del Drive.")
+
+            hoja_gacetillas = next((s for s in xls_cargado.sheet_names if "gacetilla" in remover_acentos(s.lower())), None)
+            if hoja_gacetillas:
+                df_gacetillas = pd.read_excel(xls_cargado, sheet_name=hoja_gacetillas)
+                GACETILLAS_CACHE = df_gacetillas
+                logger(f"✅ Hoja de Gacetillas ('{hoja_gacetillas}') cargada correctamente.")
+
+            hoja_globales = next((s for s in xls_cargado.sheet_names if "feeds globales" in remover_acentos(s.lower()) or "feed global" in remover_acentos(s.lower()) or "globales" in remover_acentos(s.lower())), None)
+            if hoja_globales:
+                df_feeds_globales = pd.read_excel(xls_cargado, sheet_name=hoja_globales)
+                logger(f"✅ Hoja de Feeds Globales ('{hoja_globales}') cargada correctamente.")
+                
+            logger("✅ Base de Medios sincronizada correctamente.")
+    except Exception as e:
+        logger(f"⚠️ No se pudo descargar la Base de Medios: {e}")
+    return df_medios, df_feeds, df_gacetillas, df_feeds_globales
+
+def extraer_todos_rss_excel(df_feeds):
+    if df_feeds is None or df_feeds.empty:
+        return []
+    urls_encontradas = []
+    for col in df_feeds.columns:
+        for val in df_feeds[col].dropna():
+            v_str = str(val).strip()
+            if v_str.startswith("http"):
+                urls_encontradas.append(v_str)
+    return list(dict.fromkeys(urls_encontradas))
+
+def extraer_feeds_globales(df_globales):
+    if df_globales is None or df_globales.empty:
+        return []
+    urls_encontradas = []
+    primer_col = df_globales.columns[0]
+    for val in df_globales[primer_col].dropna():
+        v_str = str(val).strip()
+        if v_str.startswith("http"):
+            urls_encontradas.append(v_str)
+    return list(dict.fromkeys(urls_encontradas))
+
+def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, urls_resueltas_global, historial_previo, titulos_resueltos_global, start_time_seccion, solo_manuales=False, contexto_ia=""):
     items = []
     evaluaciones_auditoria = []
+    notas_pendientes_ia = []
     secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
 
-    requiere_ia = USAR_FILTRO_IA and es_seccion_general(sec_id, nombre_seccion)
+    requiere_ia = USAR_FILTRO_IA and (es_seccion_general(sec_id, nombre_seccion) or bool(contexto_ia))
     
     if links_manuales:
         logger(f"  ➜ Procesando {len(links_manuales)} link(s) manuales...")
         for url_manual in reversed(links_manuales):
-            items.append((ObjetoManual(url_manual, "Nota Manual", ""), 'Manual'))
+            items.append((ObjetoManual(url_manual, "Nota Manual", ""), 'Manual', 'manual'))
 
     if items_rss_preasignados and not solo_manuales:
-        for it_obj, origen_tipo in items_rss_preasignados:
-            items.append((it_obj, origen_tipo))
+        for it_tuple in items_rss_preasignados:
+            if len(it_tuple) == 3:
+                items.append(it_tuple)
+            elif len(it_tuple) == 2:
+                items.append((it_tuple[0], it_tuple[1], 'general'))
+            else:
+                items.append((it_tuple[0], 'Desconocido', 'general'))
 
     noticias_procesadas = []
 
@@ -874,8 +1199,8 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         }
 
         link_norm = str(ng['link']).strip().lower()
+        u_clean = url_limpia_para_duplicados(ng['link'])
 
-        # VERIFICACIÓN EN HISTORIAL PREVIO (GRÁFICA)
         if link_norm and link_norm in historial_previo:
             logger(f"    📜 EXCLUIDA [Gráfica] por historial anterior del cliente: {m_limpio[:20]} - {ng['titulo'][:30]}...")
             if es_tier_1_o_2(tier):
@@ -886,7 +1211,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                 })
             continue
 
-        if link_norm and link_norm in links_sumados_global:
+        if (link_norm and link_norm in links_sumados_global) or (u_clean in urls_resueltas_global):
             logger(f"    🔁 EXCLUIDA [Gráfica] por nota duplicada: {m_limpio[:20]} - {ng['titulo'][:30]}...")
             if es_tier_1_o_2(tier):
                 evaluaciones_auditoria.append({
@@ -898,6 +1223,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
 
         noticias_procesadas.append(bloque_ng)
         if link_norm: links_sumados_global.add(link_norm)
+        urls_resueltas_global.add(u_clean)
 
         evaluaciones_auditoria.append({
             "medio": m_limpio, "titulo": ng['titulo'], "link": ng['link'],
@@ -907,12 +1233,46 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         logger(f"    ✓ SUMADA [Gráfica]: {m_limpio[:20]} - {ng['titulo'][:30]}...")
 
     organicas_ok = 0
+    organicas_por_feed = {}
+    vistos_urls_seccion = set()
+    vistos_titulos_seccion = set()
+    repetidas_seccion = 0
 
-    for item, origen in items:
-        # CORTE DE SEGURIDAD: SI LLEGA A 10 NOTAS APROBADAS, SE INTERRUMPE EL BUCLE
-        if origen != 'Manual' and organicas_ok >= 10:
-            logger(f"    ⏹️ ¡Límite de 10 notas alcanzado! Se interrumpe la búsqueda en esta sección.")
+    if aplica_filtro_ar(cliente_nombre, sec_id):
+        def _prio_item(t):
+            if t[1] == 'Manual': return -1
+            if t[1] != 'Google News': return -0.5  # v5.34: nicho/Excel/gacetilla/extras siempre antes que Google News
+            try:
+                med = t[0].source.text if getattr(t[0], 'source', None) is not None else ""
+                return 0 if es_diario_ar_prioritario(med, t[0].link.text) else 1
+            except Exception: return 1
+        items.sort(key=_prio_item)  # sort estable: respeta el orden previo dentro de cada grupo
+
+    for item_tuple in items:
+        # --- NUEVO: CHECK DE PAUSA (Congela y descuenta tiempo) ---
+        if getattr(state, 'is_paused', False):
+            inicio_pausa = time.time()
+            while getattr(state, 'is_paused', False):
+                time.sleep(0.5)
+            # Sumamos los segundos que estuvo pausado para NO perjudicar el límite
+            start_time_seccion += (time.time() - inicio_pausa)
+        # ----------------------------------------------------------
+
+        if time.time() - start_time_seccion > 120:
+            logger(f"    ⏳ ¡Tiempo límite alcanzado! Interrumpiendo búsqueda de nuevas notas en esta sección.")
             break
+
+        item = item_tuple[0]
+        origen = item_tuple[1]
+        feed_id = item_tuple[2]
+        
+        if origen != 'Manual' and organicas_ok >= limite_notas:
+            logger(f"    ⏹️ ¡Límite global de {limite_notas} notas alcanzado! Se interrumpe la búsqueda en esta sección.")
+            break
+            
+        if cliente_nombre == "BMS" and origen == 'Google News':
+            if organicas_por_feed.get(feed_id, 0) >= 3:
+                continue
 
         link_orig = item.link.text
         link_norm = link_orig.strip().lower()
@@ -922,11 +1282,23 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         fecha_rss = formatear_fecha(fecha_rss_raw)
 
         if origen != 'Manual':
-            titulo = re.sub(r'\s+[-|]\s+[^-|]+$', '', titulo_bruto).strip()
+            titulo = limpiar_titulo(titulo_bruto)
         else:
             titulo = titulo_bruto
 
         medio = item.source.text if hasattr(item, 'source') and item.source and item.source.text != "Manual" else urlparse(link_orig).netloc.replace("www.", "").split('.')[0].capitalize()
+
+        if origen != 'Manual':
+            clave_url = url_limpia_para_duplicados(link_orig)
+            clave_titulo = (re.sub(r'[^a-z0-9]', '', remover_acentos(titulo.lower())),
+                            re.sub(r'[^a-z0-9]', '', remover_acentos(str(medio).lower())))
+            if (clave_url and clave_url in vistos_urls_seccion) or (clave_titulo[0] and clave_titulo in vistos_titulos_seccion):
+                repetidas_seccion += 1
+                continue
+            if clave_url: vistos_urls_seccion.add(clave_url)
+            if clave_titulo[0]: vistos_titulos_seccion.add(clave_titulo)
+
+        url_fuente = obtener_url_fuente_rss(item)
 
         bloque_pre = {
             "medio": limpiar_nombre_medio(medio), "tipo_medio": "Online", "fecha": fecha_rss,
@@ -934,7 +1306,6 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             "bajada_real": desc_rss, "oracion_clave": desc_rss, "resumen_rss": desc_rss, "origen": origen
         }
 
-        # VERIFICACIÓN EN HISTORIAL PREVIO DEL CLIENTE (ONLINE)
         if link_norm and link_norm in historial_previo:
             logger(f"    📜 EXCLUIDA por historial anterior del cliente: {medio[:20]} - {titulo[:30]}...")
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
@@ -946,19 +1317,19 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                 })
             continue
 
-        # VERIFICACIÓN DE NOTA DUPLICADA (MISMO REPORTE)
-        if link_norm and link_norm in links_sumados_global:
-            logger(f"    🔁 EXCLUIDA por nota duplicada: {medio[:20]} - {titulo[:30]}...")
+        t_compact_pre = re.sub(r'[^a-z0-9]', '', remover_acentos(titulo.lower()))
+        
+        if (link_norm and link_norm in links_sumados_global) or (t_compact_pre and t_compact_pre in titulos_resueltos_global and len(t_compact_pre) > 15):
+            logger(f"    🔁 EXCLUIDA por nota duplicada (URL origen o Título): {medio[:20]} - {titulo[:30]}...")
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
             if es_tier_1_o_2(tier_test):
                 evaluaciones_auditoria.append({
                     "medio": medio, "titulo": titulo, "link": link_orig,
-                    "estado": "EXCLUIDA_DUPLICADA", "motivo": "La nota ya fue incluida en otra sección del reporte actual", "es_ia": False,
+                    "estado": "EXCLUIDA_DUPLICADA", "motivo": "La nota o el título exacto ya fue incluido en otra sección o de forma manual", "es_ia": False,
                     "origen_fuente": origen, "bloque_data": bloque_pre
                 })
             continue
 
-        # VERIFICACIÓN DE RANGO TEMPORAL EN FEEDS
         if origen != 'Manual' and not es_fecha_en_rango(fecha_rss_raw, timeframe_google):
             logger(f"    📅 EXCLUIDA por antigüedad (> {timeframe_google}): {medio[:20]} - {titulo[:30]}...")
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
@@ -970,20 +1341,25 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                 })
             continue
 
-        # PRE-FILTRO ULTRA RÁPIDO
         if origen != 'Manual':
             texto_pre = f"{titulo} {desc_rss}"
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
             es_top_tier = es_tier_1_o_2(tier_test)
 
-            if es_portal_extranjero(link_orig, medio, texto_pre):
-                logger(f"    🌎 EXCLUIDA por portal extranjero: {medio[:20]} ({link_orig})")
+            motivo_extr = motivo_portal_extranjero(link_orig, medio, texto_pre, url_fuente)
+            if motivo_extr:
+                logger(f"    🌎 EXCLUIDA por portal extranjero [{motivo_extr}]: {medio[:20]} ({link_orig})")
                 if es_top_tier:
                     evaluaciones_auditoria.append({
                         "medio": medio, "titulo": titulo, "link": link_orig,
-                        "estado": "EXCLUIDA_EXTRANJERO", "motivo": "Portal o dominio identificado como extranjero", "es_ia": False,
+                        "estado": "EXCLUIDA_EXTRANJERO", "motivo": f"Portal o dominio identificado como extranjero ({motivo_extr})", "es_ia": False,
                         "origen_fuente": origen, "bloque_data": bloque_pre
                     })
+                continue
+
+            if sec_id in SECCIONES_FILTRO_AR_ESTRICTO_RSS and aplica_filtro_ar(cliente_nombre, sec_id) \
+               and not es_sitio_permitido_ar(link_orig, medio, texto_pre):
+                logger(f"    🌎 EXCLUIDA [Competencia] sitio no argentino (sin leer nota): {medio[:20]} ({link_orig})")
                 continue
 
             if contiene_exclusion(texto_pre, exclusiones):
@@ -996,18 +1372,8 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                     })
                 continue
 
-            if not contiene_palabra_clave(texto_pre, palabras_clave):
-                logger(f"    🔍 EXCLUIDA por no coincidir palabras clave: {medio[:20]} - {titulo[:30]}...")
-                if es_top_tier:
-                    evaluaciones_auditoria.append({
-                        "medio": medio, "titulo": titulo, "link": link_orig,
-                        "estado": "EXCLUIDA_KEYWORD", "motivo": "Sin coincidencias de palabras clave", "es_ia": False,
-                        "origen_fuente": origen, "bloque_data": bloque_pre
-                    })
-                continue
-
         origen_str = origen
-        logger(f"    🔎 Revisando [{origen_str}]: {link_orig}")
+        logger(f"    🔎 Revisando [{origen_str}]: {medio[:20]} - {titulo[:30]}...")
         
         page = context.new_page()
         bajada, oracion, fecha_web, link_destino = "", "", "", link_orig
@@ -1015,8 +1381,29 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         try:
             page.goto(link_orig, timeout=15000, wait_until="domcontentloaded")
             page.wait_for_timeout(1200)
+            if page.url and re.search(r'//(news|consent)\.google\.', page.url):
+                try:
+                    page.wait_for_url(lambda u: not re.search(r'//(news|consent)\.google\.', u), timeout=5000)
+                except Exception:
+                    pass
             if page.url:
                 link_destino = page.url
+                if origen != 'Manual':
+                    logger(f"    🔗 Destino: {link_destino}")
+                
+            u_clean = url_limpia_para_duplicados(link_destino)
+            if u_clean in urls_resueltas_global:
+                logger(f"    🔁 EXCLUIDA por url de destino duplicada: {medio[:20]} - {titulo[:30]}...")
+                _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
+                if es_tier_1_o_2(tier_test):
+                    evaluaciones_auditoria.append({
+                        "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
+                        "estado": "EXCLUIDA_DUPLICADA", "motivo": "La url destino exacta ya fue procesada (Ej: carga manual)", "es_ia": False,
+                        "origen_fuente": origen, "bloque_data": bloque_pre
+                    })
+                try: page.close() 
+                except: pass
+                continue
             
             try:
                 page.evaluate('''
@@ -1025,37 +1412,63 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             except: pass
 
             t_web = page.title()
-            if titulo in ["Manual", "Nota Manual"]: 
-                titulo = re.sub(r'\s+[-|]\s+[^-|]+$', '', t_web).strip() if t_web else "Nota Manual"
-            if medio == "Manual": 
-                medio = urlparse(page.url).netloc.replace("www.", "").split('.')[0].capitalize()
+            
+            if t_web:
+                t_clean = limpiar_titulo(t_web)
+                if titulo in ["Manual", "Nota Manual"]:
+                    titulo = t_clean if t_clean else "Nota Manual"
+                    domain = urlparse(page.url).netloc.lower()
+                    if 'instagram.com' not in domain and 'facebook.com' not in domain and 'x.com' not in domain and 'twitter.com' not in domain: 
+                        medio = urlparse(page.url).netloc.replace("www.", "").split('.')[0].capitalize()
             
             bajada = obtener_resumen_metadata(page)
             fecha_web = obtener_fecha_metadata(page)
             
-            bajada_tiene_kw = contiene_palabra_clave(bajada, palabras_clave)
-            if (sec_id in secciones_destacadas) or (not bajada_tiene_kw):
-                try:
-                    loc_p = page.locator("p")
-                    count_p = loc_p.count()
-                    textos_p = []
-                    for i in range(min(count_p, 30)):
-                        textos_p.append(loc_p.nth(i).inner_text())
-                    t_cand_p = " ".join(textos_p)
-                    if len(t_cand_p.strip()) > 50:
-                        oracion = extraer_oracion_clave(t_cand_p, palabras_clave, sec_id)
-                except: pass
+            # --- NUEVA LÓGICA REDES SOCIALES ---
+            domain_url = urlparse(link_destino).netloc.lower()
+            
+            if any(rs in domain_url for rs in ['instagram.com', 'facebook.com', 'x.com', 'twitter.com']):
+                nombre_usuario = ""
+                texto_post = ""
+                # Si IG bloquea la lectura web, bajada estará vacía. Usamos desc_rss (que trae Google News) como salvavidas.
+                texto_meta = bajada if (bajada and len(bajada) > 10) else (desc_rss if 'desc_rss' in locals() else "")
                 
-                if not oracion:
-                    for sel in ["article", "main", ".content", "body"]:
-                        if page.locator(sel).first.count() > 0:
-                            t_cand = page.locator(sel).first.inner_text(timeout=1500)
-                            if len(t_cand.strip()) > 100:
-                                oracion = extraer_oracion_clave(t_cand, palabras_clave, sec_id)
-                                if oracion: break
-                                
-                if not oracion and origen in ['Manual', 'nicho']: 
-                    oracion = extraer_oracion_clave(bajada, palabras_clave, sec_id)
+                if 'instagram.com' in domain_url and texto_meta:
+                    # Extrae el usuario aislando lo que hay entre el guion y el primer espacio
+                    m_user = re.search(r'-\s*([a-zA-Z0-9_.]+)\s+', texto_meta)
+                    if m_user: nombre_usuario = m_user.group(1)
+                    
+                    # Extrae el texto del post (todo lo que está entre comillas al final)
+                    m_text = re.search(r':\s*"(.*?)"?$', texto_meta, re.DOTALL)
+                    if m_text: texto_post = m_text.group(1).strip()
+                
+                # Respaldo visual por si el salvavidas falla
+                try:
+                    rs_data = page.evaluate('''() => {
+                        let data = {user: '', text: ''};
+                        let userEl = document.querySelector('header a, h2, h3, h1 a');
+                        if (userEl) data.user = userEl.innerText.trim();
+                        let textEl = document.querySelector('h1, article div[role="button"] + div span'); 
+                        if (textEl) data.text = textEl.innerText.trim();
+                        return data;
+                    }''')
+                    if rs_data:
+                        if not nombre_usuario and rs_data.get('user'): nombre_usuario = rs_data['user']
+                        if not texto_post and rs_data.get('text'): texto_post = rs_data['text']
+                except:
+                    pass
+                
+                if nombre_usuario:
+                    medio = nombre_usuario
+                elif origen == 'Manual':
+                    medio = "Instagram"
+                
+                if texto_post:
+                    texto_limpio = " ".join(texto_post.split())
+                    # Eliminamos el límite de caracteres para que la oración salga completa
+                    titulo = texto_limpio 
+                    if not oracion: oracion = texto_post 
+            # ------------------------------------------------------------------
                 
         except Exception as e:
             if origen != 'Manual': 
@@ -1075,26 +1488,51 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         try: page.close()
         except: pass
 
-        alcance, tier, ad_value = buscar_metricas_medio(df_medios, page.url if 'page' in locals() and page else link_orig, medio)
+        u_clean = url_limpia_para_duplicados(link_destino)
+        
+        is_social = any(rs in link_destino.lower() for rs in ['instagram.com', 'facebook.com', 'x.com', 'twitter.com'])
+        
+        # TRUCO: Si mandamos la URL "instagram.com", el buscador hace match con el tier genérico de "Instagram" 
+        # y frena. Al ocultarle la URL, lo obligamos a buscar SOLO por el nombre del usuario (ej: revistamercado).
+        url_busqueda_excel = "" if (is_social and medio.lower() != "instagram") else (page.url if 'page' in locals() and page else link_orig)
+        
+        alcance, tier, ad_value = buscar_metricas_medio(df_medios, url_busqueda_excel, medio)
         fecha_final = fecha_web if fecha_web else (fecha_rss if fecha_rss else datetime.datetime.now().strftime("%d/%m/%Y"))
 
+        # --- CONSTRUCCIÓN DEL BLOQUE ---
+        # Si es red social, conservamos los guiones bajos originales (ej: revista_mercado) para la interfaz visual.
+        medio_final = medio if (is_social and medio.lower() != "instagram") else limpiar_nombre_medio(medio)
+
         bloque_noticia = {
-            "medio": limpiar_nombre_medio(medio), "tipo_medio": "Online", "fecha": fecha_final,
+            "medio": medio_final, "tipo_medio": "Online", "fecha": fecha_final,
             "alcance": alcance, "tier": tier, "ad_value": ad_value, "titulo": titulo, "link": link_orig,
             "link_destino": link_destino,
             "bajada_real": bajada, "oracion_clave": oracion, "resumen_rss": item.description.text if hasattr(item, 'description') and item.description else "", "origen": origen
         }
 
+        t_compact_post = re.sub(r'[^a-z0-9]', '', remover_acentos(titulo.lower()))
+
         if origen != 'Manual':
             texto_eval = f"{titulo} {bajada} {oracion}"
             es_top_tier = es_tier_1_o_2(tier)
 
-            if es_portal_extranjero(page.url if 'page' in locals() and page else link_orig, medio, texto_eval):
-                logger(f"    🌎 EXCLUIDA por portal extranjero: {medio[:20]}...")
+            motivo_extr = motivo_portal_extranjero(link_destino, medio, texto_eval, url_fuente)
+            if motivo_extr:
+                logger(f"    🌎 EXCLUIDA por portal extranjero [{motivo_extr}]: {medio[:20]}...")
                 if es_top_tier:
                     evaluaciones_auditoria.append({
                         "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
-                        "estado": "EXCLUIDA_EXTRANJERO", "motivo": "Contenido o portal identificado como extranjero", "es_ia": False,
+                        "estado": "EXCLUIDA_EXTRANJERO", "motivo": f"Contenido o portal identificado como extranjero ({motivo_extr})", "es_ia": False,
+                        "origen_fuente": origen, "bloque_data": bloque_noticia
+                    })
+                continue
+
+            if aplica_filtro_ar(cliente_nombre, sec_id) and not es_sitio_permitido_ar(link_destino, medio, texto_eval):
+                logger(f"    🌎 EXCLUIDA por sitio no argentino: {medio[:20]} ({link_destino})")
+                if es_top_tier:
+                    evaluaciones_auditoria.append({
+                        "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
+                        "estado": "EXCLUIDA_EXTRANJERO", "motivo": "Sitio no argentino (no .ar, no está en lista permitida y no habla de Argentina)", "es_ia": False,
                         "origen_fuente": origen, "bloque_data": bloque_noticia
                     })
                 continue
@@ -1120,19 +1558,85 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                 continue
             
             if requiere_ia:
-                es_rel, motivo_ia = evaluar_relevancia_ia(texto_eval, cliente_nombre, nombre_seccion, palabras_clave, exclusiones, logger)
-                if not es_rel:
-                    logger(f"    🤖 EXCLUIDA por IA (*): {medio[:20]} - {titulo[:30]}... ({motivo_ia})")
-                    if es_top_tier:
-                        evaluaciones_auditoria.append({
-                            "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
-                            "estado": "EXCLUIDA_IA", "motivo": motivo_ia, "es_ia": True,
-                            "origen_fuente": origen, "bloque_data": bloque_noticia
-                        })
-                    continue
+                cache_key = f"{sec_id}_{link_norm}"
+                if cache_key in CACHE_IA_SESION:
+                    es_rel, motivo_ia = CACHE_IA_SESION[cache_key]
+                    if not es_rel:
+                        logger(f"    🤖 EXCLUIDA por IA (Caché Rápida): {medio[:20]} - {titulo[:30]}... ({motivo_ia})")
+                        if es_top_tier:
+                            evaluaciones_auditoria.append({
+                                "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
+                                "estado": "EXCLUIDA_IA", "motivo": motivo_ia, "es_ia": True,
+                                "origen_fuente": origen, "bloque_data": bloque_noticia
+                            })
+                        continue
+                else:
+                    notas_pendientes_ia.append({
+                        "id": len(notas_pendientes_ia),
+                        "texto": texto_eval,
+                        "nota_info": bloque_noticia,
+                        "link_norm": link_norm,
+                        "medio": medio,
+                        "titulo": titulo,
+                        "link_orig": link_orig,
+                        "link_destino": link_destino,
+                        "origen": origen,
+                        "es_top_tier": es_top_tier,
+                        "t_compact_post": t_compact_post
+                    })
+                    
+                    # --- NUEVO: EVALUACIÓN EN CALIENTE (Lotes de 6) ---
+                    if len(notas_pendientes_ia) >= 6:
+                        logger(f"    📦 Evaluando lote rápido de {len(notas_pendientes_ia)} notas en caliente...")
+                        resultados_lote = evaluar_relevancia_ia_lotes(notas_pendientes_ia, cliente_nombre, nombre_seccion, palabras_clave, exclusiones, logger, contexto_ia)
+                        
+                        for item_ia in notas_pendientes_ia:
+                            n_id = str(item_ia['id'])
+                            es_rel, motivo_ia = resultados_lote.get(n_id, (True, "Filtro IA no disponible"))
+                            
+                            cache_key = f"{sec_id}_{item_ia['link_norm']}"
+                            CACHE_IA_SESION[cache_key] = (es_rel, motivo_ia)
+                            
+                            if not es_rel:
+                                logger(f"    🤖 EXCLUIDA por IA: {item_ia['medio'][:20]} - {item_ia['titulo'][:30]}... ({motivo_ia})")
+                                if item_ia['es_top_tier']:
+                                    evaluaciones_auditoria.append({
+                                        "medio": item_ia['medio'], "titulo": item_ia['titulo'], "link": item_ia['link_orig'], "link_destino": item_ia['link_destino'],
+                                        "estado": "EXCLUIDA_IA", "motivo": motivo_ia, "es_ia": True,
+                                        "origen_fuente": item_ia['origen'], "bloque_data": item_ia['nota_info']
+                                    })
+                            else:
+                                if organicas_ok < limite_notas:
+                                    noticias_procesadas.append(item_ia['nota_info'])
+                                    if item_ia['link_norm']: links_sumados_global.add(item_ia['link_norm'])
+                                    
+                                    u_clean_lote = url_limpia_para_duplicados(item_ia['link_destino'])
+                                    urls_resueltas_global.add(u_clean_lote)
+                                    
+                                    if item_ia['t_compact_post'] and len(item_ia['t_compact_post']) > 15:
+                                        titulos_resueltos_global.add(item_ia['t_compact_post'])
 
+                                    evaluaciones_auditoria.append({
+                                        "medio": limpiar_nombre_medio(item_ia['medio']), "titulo": item_ia['titulo'], "link": item_ia['link_orig'], "link_destino": item_ia['link_destino'],
+                                        "estado": "SUMADA", "motivo": "Aprobada por IA (en caliente)", "es_ia": False,
+                                        "origen_fuente": item_ia['origen'], "bloque_data": item_ia['nota_info']
+                                    })
+                                    logger(f"    ✓ SUMADA [{item_ia['origen']}]: {item_ia['medio'][:20]} - {item_ia['titulo'][:30]}...")
+                                    organicas_ok += 1
+                                else:
+                                    logger(f"    ⏹️ OMITIDA por límite alcanzado: {item_ia['medio'][:20]}...")
+                                    
+                        # Vaciamos la lista para procesar el siguiente lote
+                        notas_pendientes_ia = []
+                    # --------------------------------------------------
+                    continue 
+                    
         noticias_procesadas.append(bloque_noticia)
         if link_norm: links_sumados_global.add(link_norm)
+        urls_resueltas_global.add(u_clean)
+        
+        if t_compact_post and len(t_compact_post) > 15:
+            titulos_resueltos_global.add(t_compact_post)
 
         evaluaciones_auditoria.append({
             "medio": limpiar_nombre_medio(medio), "titulo": titulo, "link": link_orig, "link_destino": link_destino,
@@ -1143,6 +1647,83 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         
         if origen != 'Manual': 
             organicas_ok += 1
+            organicas_por_feed[feed_id] = organicas_por_feed.get(feed_id, 0) + 1
+
+    if repetidas_seccion:
+        logger(f"    ♻️ {repetidas_seccion} nota(s) repetida(s) entre los feeds de esta sección: se evaluaron una sola vez.")
+
+    if notas_pendientes_ia:
+        # --- ORDENAR Y LIMITAR A 15 NOTAS ---
+        def prioridad_ia(nota):
+            ni = nota['nota_info']
+            vacios = ['?', 'nan', '', 'null', 'none']
+            # Prioridad 1: el medio figura en el Excel (tiene tier, alcance o ad value cargado)
+            en_excel = 1 if any(str(ni.get(k, '?')).strip().lower() not in vacios for k in ('tier', 'alcance', 'ad_value')) else 0
+            # Prioridad 2: sitio argentino (dominio .ar)
+            try: host = urlparse(str(nota['link_destino'])).netloc.lower().split(':')[0]
+            except Exception: host = ""
+            es_ar = 1 if (host.endswith('.ar') or '.ar.' in host) else 0
+            es_prio = 1 if (aplica_filtro_ar(cliente_nombre, sec_id) and es_diario_ar_prioritario(nota['medio'], nota['link_destino'])) else 0
+            return (es_prio, en_excel, es_ar)
+            
+        notas_pendientes_ia.sort(key=prioridad_ia, reverse=True)
+        
+        if len(notas_pendientes_ia) > LIMITE_POOL_IA:
+            logger(f"    ✂️️ Recortando pool de IA: de {len(notas_pendientes_ia)} a {LIMITE_POOL_IA} notas (priorizando Excel y sitios locales).")
+            descartadas = notas_pendientes_ia[LIMITE_POOL_IA:]
+            notas_pendientes_ia = notas_pendientes_ia[:LIMITE_POOL_IA]
+            
+            for item in descartadas:
+                logger(f"    ⏹️ OMITIDA por límite de IA (Max {LIMITE_POOL_IA}): {item['medio'][:20]} - {item['titulo'][:30]}...")
+                if item['es_top_tier']:
+                    evaluaciones_auditoria.append({
+                        "medio": item['medio'], "titulo": item['titulo'], "link": item['link_orig'], "link_destino": item['link_destino'],
+                        "estado": "EXCLUIDA_LIMITE_IA", "motivo": f"Excluida para no superar el límite de {LIMITE_POOL_IA} consultas IA por sección", "es_ia": False,
+                        "origen_fuente": item['origen'], "bloque_data": item['nota_info']
+                    })
+        # ------------------------------------------
+
+        logger(f"    📦 Evaluando {len(notas_pendientes_ia)} notas pendientes con IA (Por Lotes)...")
+        batch_size = 6
+        for i in range(0, len(notas_pendientes_ia), batch_size):
+            lote = notas_pendientes_ia[i:i+batch_size]
+            resultados_lote = evaluar_relevancia_ia_lotes(lote, cliente_nombre, nombre_seccion, palabras_clave, exclusiones, logger, contexto_ia)
+            
+            for item in lote:
+                n_id = str(item['id'])
+                es_rel, motivo_ia = resultados_lote.get(n_id, (True, "Filtro IA no disponible"))
+                
+                cache_key = f"{sec_id}_{item['link_norm']}"
+                CACHE_IA_SESION[cache_key] = (es_rel, motivo_ia)
+                
+                if not es_rel:
+                    logger(f"    🤖 EXCLUIDA por IA (*): {item['medio'][:20]} - {item['titulo'][:30]}... ({motivo_ia})")
+                    if item['es_top_tier']:
+                        evaluaciones_auditoria.append({
+                            "medio": item['medio'], "titulo": item['titulo'], "link": item['link_orig'], "link_destino": item['link_destino'],
+                            "estado": "EXCLUIDA_IA", "motivo": motivo_ia, "es_ia": True,
+                            "origen_fuente": item['origen'], "bloque_data": item['nota_info']
+                        })
+                else:
+                    if organicas_ok < limite_notas:
+                        noticias_procesadas.append(item['nota_info'])
+                        if item['link_norm']: links_sumados_global.add(item['link_norm'])
+                        
+                        u_clean_lote = url_limpia_para_duplicados(item['link_destino'])
+                        urls_resueltas_global.add(u_clean_lote)
+                        
+                        if item['t_compact_post'] and len(item['t_compact_post']) > 15:
+                            titulos_resueltos_global.add(item['t_compact_post'])
+
+                        evaluaciones_auditoria.append({
+                            "medio": limpiar_nombre_medio(item['medio']), "titulo": item['titulo'], "link": item['link_orig'], "link_destino": item['link_destino'],
+                            "estado": "SUMADA", "motivo": "Aprobada por IA Lotes e incluida en reporte", "es_ia": False,
+                            "origen_fuente": item['origen'], "bloque_data": item['nota_info']
+                        })
+                        logger(f"    ✓ SUMADA [{item['origen']}]: {item['medio'][:20]} - {item['titulo'][:30]}...")
+                        organicas_ok += 1
+                    else:
+                        logger(f"    ⏹️ OMITIDA por límite alcanzado post-IA: {item['medio'][:20]}...")
 
     notas_manuales = [n for n in noticias_procesadas if n['origen'] in ['Manual', 'grafica']]
     notas_google = [n for n in noticias_procesadas if n['origen'] not in ['Manual', 'grafica']]
@@ -1153,14 +1734,31 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
     noticias_finales = notas_manuales + notas_google
 
     for noti in noticias_finales:
+        # 1. Armamos el bloque de texto normal por defecto
         bloque_texto = construir_bloque_texto(noti['bajada_real'], noti['oracion_clave'], noti['titulo'], palabras_clave, sec_id, noti.get('resumen_rss', ''))
         
-        tipo_html = f" <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>({noti['tipo_medio']})</strong> " if noti['tipo_medio'] != "Gráfica" else " "
+        etiqueta_tipo = noti['tipo_medio']
+        if etiqueta_tipo == "Online":
+            medio_eval = str(noti['medio']).lower()
+            link_eval = str(noti.get('link', '')).lower()
+            link_dest = str(noti.get('link_destino', '')).lower()
+            if "instagram" in medio_eval or "instagram.com" in link_eval or "instagram.com" in link_dest:
+                etiqueta_tipo = "IG"
+            elif "facebook" in medio_eval or "facebook.com" in link_eval or "facebook.com" in link_dest:
+                etiqueta_tipo = "FB"
+            elif "twitter" in medio_eval or "x.com" in link_eval or "twitter.com" in link_eval or "x.com" in link_dest or "twitter.com" in link_dest:
+                etiqueta_tipo = "X"
+                
+        # --- NUEVO: Borrar el texto inferior si es una Red Social ---
+        if etiqueta_tipo in ["IG", "FB", "X"]:
+            bloque_texto = ""
+        # ------------------------------------------------------------
+            
+        tipo_html = f" <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>({etiqueta_tipo})</strong> " if noti['tipo_medio'] != "Gráfica" else " "
         
-        # mars_competencia no lleva métricas de Alcance, Tier ni Ad Value
         if sec_id == 'booking_tema_1':
             info_metricas = f" <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>Ad. Value: $ {noti['ad_value']}</strong> -"
-        elif sec_id in IDS_SINTESIS and sec_id != 'mars_competencia':
+        elif sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4']:
             info_metricas = f" <span style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>(Alcance: {noti['alcance']} Tier: {noti['tier']})</span> <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>Ad. Value: $ {noti['ad_value']}</strong> -"
         else:
             info_metricas = " -"
@@ -1177,6 +1775,8 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     data_editor = []
     data_auditoria = []
     links_sumados_global = set()
+    urls_resueltas_global = set()
+    titulos_resueltos_global = set()
     historial_previo = cargar_historial_cliente(cliente_nombre)
 
     if historial_previo:
@@ -1197,8 +1797,11 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     df_medios, df_feeds, df_gacetillas, df_feeds_globales = sincronizar_base_medios(cliente_nombre, logger)
     
     items_rss_por_seccion = {sec['id']: [] for sec in estructura if not sec.get('es_separador')}
+    # v5.36: en las secciones "Exclusivas" (exclusiones propias casi vacías) el prefiltro de RSS usa la unión de TODAS las exclusiones del cliente
+    todas_excl_cliente = list(dict.fromkeys(ex for s_ in estructura if not s_.get('es_separador') for ex in s_.get('exclusiones', [])))
+    excl_por_seccion = {sec['id']: (todas_excl_cliente if remover_acentos(str(sec.get('nombre', '')).lower()).strip() == 'exclusivas' else sec.get('exclusiones', [])) for sec in estructura}
+    descartadas_fecha_excel = 0
     
-    # 1. BÚSQUEDA AUTOMÁTICA DE LA GACETILLA MÁS RECIENTE DESDE EXCEL
     if not solo_manuales and df_gacetillas is not None:
         gacetilla_texto = extraer_gacetilla_mas_reciente(df_gacetillas, cliente_nombre)
         if gacetilla_texto:
@@ -1211,19 +1814,18 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
                 try:
                     req = urllib.request.urlopen(urllib.request.Request(url_gacetilla_rss, headers={'User-Agent': 'Mozilla/5.0'}))
                     soup = BeautifulSoup(req.read(), "xml")
-                    for it in soup.find_all('item')[:20]:
-                        items_rss_por_seccion[sec_dest].append((it, 'Gacetilla Excel'))
+                    tuplas_gac = [(it, 'Gacetilla Excel', 'gacetilla') for it in soup.find_all('item')[:20]]
+                    items_rss_por_seccion[sec_dest].extend(aplicar_prefiltro_rss(tuplas_gac, timeframe_google, excl_por_seccion.get(sec_dest, []), df_medios, logger, "Gacetilla"))
                     logger(f"  ✅ Búsqueda RSS de Gacetilla agregada a la sección '{estructura[0]['nombre']}' con timeframe {timeframe_google}.")
                 except Exception as e:
                     logger(f"  ⚠️ Error al procesar RSS de Gacetilla: {e}")
 
-    # 2. BÚSQUEDAS EXTRA CONFIGURADAS EN EL PANEL LATERAL
     if busquedas_extra and not solo_manuales:
         logger("🔍 Procesando Búsquedas Extra configuradas...")
         mapa_secciones = {remover_acentos(s['nombre'].lower()): s['id'] for s in estructura if not s.get('es_separador')}
         mapa_secciones.update({s['id'].lower(): s['id'] for s in estructura if not s.get('es_separador')})
 
-        for extra in busquedas_extra:
+        for i, extra in enumerate(busquedas_extra):
             q_texto = extra.get('q', '').strip()
             sec_target = str(extra.get('sec', '')).strip()
             if not q_texto:
@@ -1241,12 +1843,12 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
                 req = urllib.request.urlopen(urllib.request.Request(url_extra_rss, headers={'User-Agent': 'Mozilla/5.0'}))
                 soup = BeautifulSoup(req.read(), "xml")
                 items_extra = soup.find_all('item')[:20]
-                for it in items_extra:
-                    items_rss_por_seccion[sec_id_destino].append((it, 'Búsqueda Extra'))
+                feed_id_extra = f"extra_{i}"
+                tuplas_extra = [(it, 'Búsqueda Extra', feed_id_extra) for it in items_extra]
+                items_rss_por_seccion[sec_id_destino].extend(aplicar_prefiltro_rss(tuplas_extra, timeframe_google, excl_por_seccion.get(sec_id_destino, []), df_medios, logger, f"Extra [{q_texto}]"))
             except Exception as e:
                 logger(f"  ⚠️ Error al consultar Búsqueda Extra ({q_texto}): {e}")
 
-    # 3. FEEDS DEL EXCEL (Nicho del cliente + Feeds Globales)
     if not solo_manuales:
         rss_excel_nicho = extraer_todos_rss_excel(df_feeds) if df_feeds is not None and not df_feeds.empty else []
         rss_excel_globales = extraer_feeds_globales(df_feeds_globales) if df_feeds_globales is not None and not df_feeds_globales.empty else []
@@ -1255,12 +1857,17 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
 
         if rss_excel_todos:
             logger(f"📊 Analizando {len(rss_excel_todos)} fuentes de Excel (Nicho + Feeds Globales) para clasificar notas por sección...")
-            for url_feed in rss_excel_todos:
+            for i, url_feed in enumerate(rss_excel_todos):
                 url_ajustada = url_feed.replace("when:1d", f"when:{timeframe_google}").replace("when%3A1d", f"when%3A{timeframe_google}")
                 try:
                     req = urllib.request.urlopen(urllib.request.Request(url_ajustada, headers={'User-Agent': 'Mozilla/5.0'}))
                     soup = BeautifulSoup(req.read(), "xml")
+                    feed_id_excel = f"excel_{i}"
                     for it in soup.find_all('item')[:20]:
+                        # v5.35: rango de fechas ANTES de clasificar/redirigir a secciones
+                        if prefiltrar_item_rss(it, timeframe_google, None, df_medios) == "fecha":
+                            descartadas_fecha_excel += 1
+                            continue
                         tit = it.title.text if it.title else ""
                         desc = it.description.text if it.description else ""
                         texto_combo = f"{tit} {desc}"
@@ -1271,18 +1878,27 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
 
                         for sec in estructura:
                             if sec.get('es_separador', False): continue
-                            if contiene_palabra_clave(texto_combo, sec['keywords']) and not contiene_exclusion(texto_combo, sec.get('exclusiones', [])):
-                                items_rss_por_seccion[sec['id']].append((it, 'Feed Excel'))
+                            if contiene_palabra_clave(texto_combo, sec['keywords']) and not contiene_exclusion(texto_combo, excl_por_seccion.get(sec['id'], [])):
+                                items_rss_por_seccion[sec['id']].append((it, 'Feed Excel', feed_id_excel))
                                 logger(f"  🔀 Feed Excel [{sitio_origen}]: Nota '{tit[:30]}...' redirigida a 📁 {sec['nombre']}")
                                 break
                 except Exception: pass
+
+    if descartadas_fecha_excel:
+        logger(f"  🧹 Prefiltro Feeds Excel: {descartadas_fecha_excel} nota(s) fuera del rango ({timeframe_google}) descartadas antes de redirigir a secciones.")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
         context = browser.new_context(viewport={"width": 1920, "height": 1080}, user_agent="Mozilla/5.0")
         
         for sec in estructura:
+            # --- NUEVO: CHECK DE PAUSA ENTRE SECCIONES ---
+            while getattr(state, 'is_paused', False):
+                time.sleep(0.5)
+            # ---------------------------------------------
+            
             logger(f"\n🔎 ANALIZANDO SECCIÓN: {sec['nombre_largo']}")
+            start_time_seccion = time.time()
             
             if sec.get('es_separador', False):
                 img_url = transformar_link_drive(sec.get('img_url', ''))
@@ -1304,21 +1920,54 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
 
             rss_ajustado = [enlace.replace("when:1d", f"when:{timeframe_google}").replace("when%3A1d", f"when%3A{timeframe_google}") for enlace in sec['rss']]
             
+            rss_ajustado = [enlace.replace("when:1d", f"when:{timeframe_google}").replace("when%3A1d", f"when%3A{timeframe_google}") for enlace in sec['rss']]
+            
             items_rss_seccion = []
             if not solo_manuales:
-                for url_busqueda in rss_ajustado:
+                for i, url_busqueda in enumerate(rss_ajustado):
+                    # --- NUEVO: Decodificar la URL para mostrar el nombre de la búsqueda en el log ---
+                    try:
+                        parsed_url = urllib.parse.urlparse(url_busqueda)
+                        qs = urllib.parse.parse_qs(parsed_url.query)
+                        termino_busqueda = qs.get('q', [''])[0]
+                        # Limpiamos los tags de tiempo para que se lea mejor
+                        termino_busqueda = urllib.parse.unquote(termino_busqueda).split(' when:')[0].replace('+', ' ').strip()
+                        if not termino_busqueda: termino_busqueda = f"Feed RSS {i+1}"
+                    except:
+                        termino_busqueda = f"Feed RSS {i+1}"
+
+                    logger(f"  📡 Consultando RSS: [{termino_busqueda}]")
+                    
                     try:
                         req = urllib.request.urlopen(urllib.request.Request(url_busqueda, headers={'User-Agent': 'Mozilla/5.0'}))
-                        for it in BeautifulSoup(req.read(), "xml").find_all('item')[:30]: 
-                            items_rss_seccion.append((it, 'Google News'))
-                    except: pass
+                        feed_id_google = f"google_{sec['id']}_{i}"
+                        
+                        items_extraidos = BeautifulSoup(req.read(), "xml").find_all('item')[:30]
+                        
+                        # --- NUEVO: Avisar cuántas notas sacó de este feed ---
+                        if items_extraidos:
+                            logger(f"    ✅ Se extrajeron {len(items_extraidos)} notas en bruto de este feed.")
+                            for it in items_extraidos: 
+                                items_rss_seccion.append((it, 'Google News', feed_id_google))
+                        else:
+                            logger(f"    ⚠️ No hay notas nuevas en este feed.")
+                            
+                    except Exception as e:
+                        logger(f"    ❌ Falló la conexión a este RSS: {e}")
 
-            items_rss_totales = items_rss_seccion + items_rss_por_seccion.get(sec['id'], [])
+            # v5.35: rango de fechas + exclusiones de la sección antes de procesar/IA
+            items_rss_seccion = aplicar_prefiltro_rss(items_rss_seccion, timeframe_google, excl_por_seccion.get(sec['id'], []), df_medios, logger, "Google News")
+
+            # v5.34: primero las notas redirigidas desde sitios de nicho (Feed Excel/gacetilla/extras); recién después Google News de la sección
+            items_rss_nicho = items_rss_por_seccion.get(sec['id'], [])
+            items_rss_totales = items_rss_nicho + items_rss_seccion
+            if items_rss_nicho:
+                logger(f"  🎯 {len(items_rss_nicho)} nota(s) de nicho se filtran primero; luego {len(items_rss_seccion)} de Google News/RSS.")
             
             notas_seccion, eval_sec = procesar_seccion(
                 context, sec['id'], sec['nombre'], items_rss_totales, 
                 links_manuales.get(sec['id'], []), notas_graficas.get(sec['id'], []),
-                sec['keywords'], sec.get('exclusiones', []), color, sec['limite'], logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, historial_previo, solo_manuales=solo_manuales
+                sec['keywords'], sec.get('exclusiones', []), color, sec['limite'], logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, urls_resueltas_global, historial_previo, titulos_resueltos_global, start_time_seccion, solo_manuales=solo_manuales, contexto_ia=sec.get('contexto_ia', "")
             )
 
             img_url = transformar_link_drive(sec.get('img_url', ''))
@@ -1345,7 +1994,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     return data_editor, data_auditoria
 
 # ====================================================================
-# GENERADOR HTML DE AUDITORÍA Y CONTROL (ARCHIVO APARTE)
+# GENERADOR HTML DE AUDITORÍA Y CONTROL
 # ====================================================================
 def generar_html_auditoria(cliente_nombre, timeframe, data_auditoria, color):
     fecha_str = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -1367,8 +2016,9 @@ def generar_html_auditoria(cliente_nombre, timeframe, data_auditoria, color):
         .stats {{ display: flex; gap: 16px; margin-top: 16px; }}
         .stat-card {{ background: rgba(255,255,255,0.15); padding: 10px 16px; border-radius: 8px; font-size: 12px; font-weight: bold; }}
         .seccion {{ background: #ffffff; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #cbd5e1; box-shadow: 0 2px 6px rgba(0,0,0,0.02); }}
-        .seccion-title {{ font-size: 16px; font-weight: bold; color: {color}; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; }}
-        .table {{ width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }}
+        .seccion-title {{ font-size: 16px; font-weight: bold; color: {color}; padding-bottom: 6px; cursor: pointer; outline: none; list-style: none; }}
+        .seccion-title::-webkit-details-marker {{ display: none; }}
+        .table {{ width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }}
         .table th {{ background: #f8fafc; text-align: left; padding: 10px; border-bottom: 2px solid #cbd5e1; color: #475569; }}
         .table td {{ padding: 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }}
         .badge {{ display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 10px; font-weight: bold; text-transform: uppercase; }}
@@ -1379,6 +2029,7 @@ def generar_html_auditoria(cliente_nombre, timeframe, data_auditoria, color):
         .fuente-tag {{ color: #64748b; font-style: italic; font-size: 11px; margin-top: 2px; display: block; }}
         a {{ color: #0284c7; text-decoration: none; }}
         a:hover {{ text-decoration: underline; }}
+        details[open] summary {{ border-bottom: 2px solid #e2e8f0; margin-bottom: 12px; }}
     </style>
 </head>
 <body>
@@ -1396,10 +2047,15 @@ def generar_html_auditoria(cliente_nombre, timeframe, data_auditoria, color):
     for sec in data_auditoria:
         html += f'''
     <div class="seccion">
-        <div class="seccion-title">📁 {sec['nombre']}</div>
+        <details open>
+            <summary class="seccion-title">
+                📁 {sec['nombre']}
+                <span style="font-size: 11px; color: #64748b; font-weight: normal; float: right; margin-top: 4px;">🔽 Clic para plegar/desplegar</span>
+            </summary>
+            <div>
 '''
         if not sec['evaluaciones']:
-            html += '<p style="color: #64748b; font-size: 12px; font-style: italic;">Sin notas evaluadas en esta sección.</p>'
+            html += '<p style="color: #64748b; font-size: 12px; font-style: italic; padding-top: 10px;">Sin notas evaluadas en esta sección.</p>'
         else:
             evals_ordenadas = sorted(
                 sec['evaluaciones'],
@@ -1451,7 +2107,7 @@ def generar_html_auditoria(cliente_nombre, timeframe, data_auditoria, color):
                 </tr>
 '''
             html += '</tbody></table>'
-        html += '</div>'
+        html += '</div></details></div>'
 
     html += '</body></html>'
     return html
@@ -1692,7 +2348,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             <span class="sidebar-text">Descargar Reporte</span>
         </button>
         <button class="btn btn-side" onclick="previewMailFinal()" style="background:#eef; color:#333;">
-            <span class="btn-icon-symbol">👁️</span>
+            <span class="btn-icon-symbol">👁</span>
             <span class="sidebar-text">Vista Previa</span>
         </button>
         <div id="btn-restaurar-sintesis-container"></div>
@@ -1717,7 +2373,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
     <script>
         const BANNER_PRINCIPAL = __BANNER_PRINCIPAL_JSON__;
         const DATA_INICIAL = __DATA_INICIAL_JSON__;
-        const GROQ_API_KEY = "__GROQ_API_KEY__";
+        const GROQ_API_KEYS = ["__GROQ_API_KEY__", "__GROQ_API_KEY_2__"];
         const REPORT_ID = "__REPORT_ID__";
         const STORAGE_KEY = 'clipping_draft_' + (REPORT_ID || location.pathname.replace(/[^a-zA-Z0-9]/g, '_'));
 
@@ -1840,6 +2496,9 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
                 textContent = textContent.replace(/Ad\. Value: \$ [\d\.]+\s*-?/gi, '')
                                          .replace(/\(Online\)/gi, '')
                                          .replace(/\(Gráfica\)/gi, '')
+                                         .replace(/\(IG\)/gi, '')
+                                         .replace(/\(FB\)/gi, '')
+                                         .replace(/\(X\)/gi, '')
                                          .replace(/\(Alcance:.*?\)/gi, '')
                                          .replace(/\[Mención no detectada.*?\]/gi, '')
                                          .replace(/Sin resumen disponible\./gi, '')
@@ -1855,19 +2514,23 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             btnElement.disabled = true;
 
             try {
-                const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${GROQ_API_KEY}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: "openai/gpt-oss-20b",
-                        messages: [{role: "user", content: prompt}],
-                        temperature: 0.3,
-                        max_tokens: 1024
-                    })
-                });
+                let response = null;
+                for (const k of GROQ_API_KEYS) {
+                    response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${k}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            model: "openai/gpt-oss-20b",
+                            messages: [{role: "user", content: prompt}],
+                            temperature: 0.3,
+                            max_tokens: 1024
+                        })
+                    });
+                    if (![429, 498, 503].includes(response.status)) break;
+                }
 
                 if (!response.ok) {
                     const errorJson = await response.json().catch(() => ({}));
@@ -2240,7 +2903,13 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         function descargarReporteFinal(){
             const a = document.createElement('a');
             a.href = URL.createObjectURL(new Blob([generarHtmlFinal()], { type: 'text/html' }));
-            a.download = 'Reporte_Clipping.html';
+            
+            const fecha = new Date();
+            const dia = String(fecha.getDate()).padStart(2, '0');
+            const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+            const anio = String(fecha.getFullYear()).slice(-2);
+            
+            a.download = `Clipping __CLIENTE_NOMBRE__ ${dia}-${mes}-${anio}.html`;
             a.click();
         }
         
@@ -2269,8 +2938,9 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 </html>'''
     plantilla = plantilla.replace("__COLOR_CLIENTE__", color)
     plantilla = plantilla.replace("__BANNER_PRINCIPAL_JSON__", json.dumps(banner_limpio)).replace("__DATA_INICIAL_JSON__", json.dumps(sec_data))
-    plantilla = plantilla.replace("__GROQ_API_KEY__", GROQ_API_KEY)
+    plantilla = plantilla.replace("__GROQ_API_KEY__", GROQ_API_KEY).replace("__GROQ_API_KEY_2__", GROQ_API_KEY_2)
     plantilla = plantilla.replace("__REPORT_ID__", report_id)
+    plantilla = plantilla.replace("__CLIENTE_NOMBRE__", cliente_nombre)
     return plantilla
 
 # ====================================================================
@@ -2305,6 +2975,7 @@ async def index():
 
     await ui.context.client.connected()
 
+    # PANTALLA DE LOGIN
     if not app.storage.tab.get('authenticated', False):
         with ui.card().classes('absolute-center items-center p-8 shadow-xl rounded-2xl w-96'):
             ui.label('🔒 Acceso Restringido').classes('text-2xl font-bold text-[#0F172A] mb-2')
@@ -2335,19 +3006,24 @@ async def index():
 
     with ui.header().classes('justify-between items-center bg-[#0F172A] shadow-md px-6 py-3'):
         header_title()
+            
         def logout():
             registrar_actividad(app.storage.tab.get('username', 'usuario'), "Cierre de sesión", "Salió del sistema")
             app.storage.tab['authenticated'] = False
             ui.navigate.reload()
+            
         with ui.row().classes('items-center gap-4'):
-            ui.label(f'v{APP_VERSION}').classes('text-slate-300 italic text-sm')
-            ui.button('🚪 Cerrar Sesión', on_click=logout).props('flat text-color=white').classes('font-bold')
+            ui.label(f'v{APP_VERSION}').classes('text-slate-300 italic text-sm font-bold bg-slate-800 px-2 rounded')
+            ui.button('🚪 Cerrar Sesión', on_click=logout).props('flat text-color=white').classes('font-bold border border-slate-600 rounded px-3 ml-2')
 
+    # ====================================================================
+    # MENÚ LATERAL Y MÓDULO DE WEB SCRAPING
+    # ====================================================================
     with ui.left_drawer(value=True).classes('bg-[#f8f9fa] border-r border-gray-200 p-6'):
         
         if app.storage.tab.get('username') == 'admin':
             with ui.card().classes('w-full p-4 mb-6 border border-amber-300 bg-amber-50 shadow-sm rounded-xl'):
-                ui.label('🛠️ MODO DIOS (Admin)').classes('text-xs font-bold text-amber-800 tracking-wider mb-2')
+                ui.label('🛠 MODO DIOS (Admin)').classes('text-xs font-bold text-amber-800 tracking-wider mb-2')
                 
                 ui.button('📝 Reporte SOLO MANUALES', on_click=lambda: procesar_reporte(solo_manuales=True)).props('dense outline text-color=amber-9').classes('w-full mb-2 font-bold')
                 ui.button('⚡ Prueba Rápida (Solo Banners)', on_click=lambda: procesar_reporte(solo_banners=True)).props('dense color=amber-8').classes('w-full font-bold text-white')
@@ -2394,13 +3070,11 @@ async def index():
         sidebar_content()
 
     def mostrar_pantalla_revision(data_editor, data_auditoria):
-        """Abre un diálogo interactivo en pantalla para revisar y modificar la decisión de cada nota antes de generar el reporte final."""
         with ui.dialog().classes('w-full') as dialog, ui.card().classes('w-full max-w-5xl p-6 bg-slate-50 rounded-2xl shadow-2xl'):
             ui.label('🔍 Revisión y Control de Notas (Previo a Generar)').classes('text-xl font-bold text-slate-800 mb-1')
             ui.label('Podés incluir notas que hayan sido excluidas por la IA o el filtro, o quitar notas sumadas antes de descargar los archivos.').classes('text-xs text-slate-500 mb-4')
 
             dialog.open()
-
             scroll_container = ui.scroll_area().classes('w-full h-[550px] pr-2').props('id=review-scroll-area')
 
             with scroll_container:
@@ -2490,18 +3164,32 @@ async def index():
                                             if s_edit:
                                                 s_edit['notas'] = []
                                                 cfg = CLIENTES_CONFIG[state.cliente]
+                                                sec_cfg_rev = next((sc for sc in cfg['secciones'] if sc['id'] == s_edit['id']), None)
+                                                kws_sec_rev = sec_cfg_rev.get('keywords', []) if sec_cfg_rev else []
                                                 for e_sum in sumadas:
                                                     b = e_sum.get('bloque_data')
                                                     if b:
                                                         if 'html_bloque' in b and b['html_bloque']:
                                                             s_edit['notas'].append({"html_bloque": b['html_bloque']})
                                                         else:
-                                                            bloque_texto = construir_bloque_texto(b.get('bajada_real', ''), b.get('oracion_clave', ''), b.get('titulo', ''), cfg['secciones'][0]['keywords'], s_edit['id'], b.get('resumen_rss', ''))
-                                                            tipo_html = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>({b.get('tipo_medio', 'Online')})</strong> " if b.get('tipo_medio') != "Gráfica" else " "
+                                                            bloque_texto = construir_bloque_texto(b.get('bajada_real', ''), b.get('oracion_clave', ''), b.get('titulo', ''), kws_sec_rev, s_edit['id'], b.get('resumen_rss', ''))
+                                                            
+                                                            etiqueta_tipo = b.get('tipo_medio', 'Online')
+                                                            if etiqueta_tipo == "Online":
+                                                                medio_eval = str(b.get('medio', '')).lower()
+                                                                link_eval = str(b.get('link', '')).lower()
+                                                                if "instagram" in medio_eval or "instagram.com" in link_eval:
+                                                                    etiqueta_tipo = "IG"
+                                                                elif "facebook" in medio_eval or "facebook.com" in link_eval:
+                                                                    etiqueta_tipo = "FB"
+                                                                elif "twitter" in medio_eval or "x.com" in link_eval or "twitter.com" in link_eval:
+                                                                    etiqueta_tipo = "X"
+
+                                                            tipo_html = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>({etiqueta_tipo})</strong> " if b.get('tipo_medio') != "Gráfica" else " "
                                                             info_metricas = " -"
                                                             if s_edit['id'] == 'booking_tema_1':
                                                                 info_metricas = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
-                                                            elif s_edit['id'] in IDS_SINTESIS and s_edit['id'] != 'mars_competencia':
+                                                            elif s_edit['id'] in IDS_SINTESIS and s_edit['id'] not in ['mars_competencia', 'bms_tema_4']:
                                                                 info_metricas = f" <span style='color: {cfg['color_primario']}; font-size: 14px;'>(Alcance: {b.get('alcance', '?')} Tier: {b.get('tier', '?')})</span> <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
                                                             
                                                             html_indiv = f'''<p style="margin-top: 0; margin-bottom: 4px; color: #000000;"><strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('medio', '')}</strong>{tipo_html}<strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('fecha', '')}</strong>{info_metricas} <a href="{b.get('link', '#')}" target="_blank" rel="noopener noreferrer" style="color: {cfg['color_primario']}; text-decoration: none; font-size: 14px; font-weight: normal;">{b.get('titulo', '')}</a></p>{bloque_texto}'''
@@ -2559,14 +3247,29 @@ async def index():
         state.log_container.clear()
         state.log_container.push("🚀 Iniciando motor de procesamiento...")
         
+        # --- NUEVO: Setup de los botones de la UI al arrancar ---
+        if getattr(state, 'btn_procesar', None): state.btn_procesar.disable()
+        if getattr(state, 'btn_pausa', None):
+            state.is_paused = False
+            state.btn_pausa.set_text('⏸️ PAUSAR')
+            state.btn_pausa.classes(replace='py-4 text-lg font-bold shadow-lg rounded-xl bg-amber-500 text-white w-1/3 transition-all')
+            state.btn_pausa.classes(remove='hidden')
+            
         registrar_actividad(app.storage.tab.get('username', 'usuario'), "Generó Reporte", f"Cliente: {state.cliente} | Manuales: {solo_manuales} | Banners: {solo_banners}")
         
         start_time = datetime.datetime.now()
+        tiempo_pausado_total = 0
+        
         def update_chrono():
-            elapsed = int((datetime.datetime.now() - start_time).total_seconds())
+            nonlocal tiempo_pausado_total
+            if getattr(state, 'is_paused', False):
+                tiempo_pausado_total += 1
+                return
+            
+            elapsed = int((datetime.datetime.now() - start_time).total_seconds()) - tiempo_pausado_total
             mins, secs = divmod(elapsed, 60)
             if state.timer_label:
-                state.timer_label.set_text(f'⏱️ Tiempo transcurrido: {mins:02d}:{secs:02d}')
+                state.timer_label.set_text(f'⏱️ Tiempo de trabajo: {mins:02d}:{secs:02d}')
             
         ui_chrono = ui.timer(1.0, update_chrono)
         
@@ -2625,6 +3328,10 @@ async def index():
 
             mostrar_pantalla_revision(data_editor, data_auditoria)
             
+            # --- NUEVO: Resetear los botones al terminar con éxito ---
+            if getattr(state, 'btn_procesar', None): state.btn_procesar.enable()
+            if getattr(state, 'btn_pausa', None): state.btn_pausa.classes(add='hidden')
+            
         except Exception as e:
             flush_logs()
             ui_timer.deactivate()
@@ -2634,6 +3341,10 @@ async def index():
             if state.log_container:
                 state.log_container.push(f"❌ Error durante el proceso: {str(e)}")
             ui.notify('❌ Error al generar. Mirá el log de pantalla.', color='negative')
+            
+            # --- NUEVO: Resetear los botones si falla por error ---
+            if getattr(state, 'btn_procesar', None): state.btn_procesar.enable()
+            if getattr(state, 'btn_pausa', None): state.btn_pausa.classes(add='hidden')
 
     @ui.refreshable
     def main_content():
@@ -2702,7 +3413,7 @@ async def index():
                     ui.label("🔗 Notas Web Manuales").classes('font-bold text-gray-700 mt-4')
                     ui.textarea('Pegá los links (separados por coma o con un enter)').bind_value(state.links_manuales, sec['id']).classes('w-full bg-gray-50')
                     
-                    ui.label("🗞️ Agregar Nota Gráfica / PDF").classes('font-bold text-gray-700 mt-6 mb-2')
+                    ui.label("🗞️ Agregar Nota Gráfica").classes('font-bold text-gray-700 mt-6 mb-2')
                     for i, graf in enumerate(state.graficas[sec['id']]):
                         with ui.card().classes('w-full bg-gray-50 p-4 border border-gray-200 mb-3 shadow-none'):
                             if len(state.graficas[sec['id']]) > 1:
@@ -2727,7 +3438,23 @@ async def index():
             state.log_box = ui.column().classes('w-full hidden')
             state.log_container = MonitorConsola(state.log_box)
 
-            ui.button('🚀 PROCESAR REPORTE', on_click=lambda: procesar_reporte()).classes('w-full py-4 text-lg font-bold shadow-lg rounded-xl mt-4').style(f'background-color: {color}; color: white;')
+            # --- NUEVO: Botones de control y lógica de Pausa ---
+            def toggle_pausa():
+                state.is_paused = not getattr(state, 'is_paused', False)
+                if state.is_paused:
+                    state.btn_pausa.set_text('▶️ REANUDAR')
+                    state.btn_pausa.classes(replace='py-4 text-lg font-bold shadow-lg rounded-xl bg-emerald-500 text-white w-1/3 transition-all')
+                    if state.status_chip: state.status_chip.set_text("⏸️ Proceso en pausa...")
+                    if state.log_container: state.log_container.push("⏸️ <b>[PROCESO PAUSADO]</b> - <i>Revisá el log y tocá 'Reanudar' cuando estés listo.</i>")
+                else:
+                    state.btn_pausa.set_text('⏸️ PAUSAR')
+                    state.btn_pausa.classes(replace='py-4 text-lg font-bold shadow-lg rounded-xl bg-amber-500 text-white w-1/3 transition-all')
+                    if state.status_chip: state.status_chip.set_text("▶️ Reanudando búsqueda...")
+                    if state.log_container: state.log_container.push("▶️ <b>[PROCESO REANUDADO]</b>")
+
+            with ui.row().classes('w-full gap-2 mt-4'):
+                state.btn_procesar = ui.button('🚀 PROCESAR REPORTE', on_click=lambda: procesar_reporte()).classes('flex-grow py-4 text-lg font-bold shadow-lg rounded-xl transition-all').style(f'background-color: {color}; color: white;')
+                state.btn_pausa = ui.button('⏸️ PAUSAR', on_click=toggle_pausa).classes('py-4 text-lg font-bold shadow-lg rounded-xl bg-amber-500 text-white w-1/3 hidden transition-all')
 
     main_content()
 

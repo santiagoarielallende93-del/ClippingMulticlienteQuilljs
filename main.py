@@ -160,6 +160,7 @@ CLIENTES_CONFIG = {
     "MSD Salud Animal": {
         "color_primario": "#006E74",
         "hoja_excel": "MSD",
+        "temas_excluir": [],  # Temas/palabras a excluir en TODAS las secciones de este cliente
         "banner_principal_local": "banners/principal.jpg",
         "banner_principal_url": "https://drive.google.com/file/d/1uT1al-u7cCEG-Q6oiay52GIdwnj2OKM5/view",
         "secciones": [
@@ -230,7 +231,7 @@ CLIENTES_CONFIG = {
         ]
     },
     "Mars": {
-        "color_primario": "#0000FF", "hoja_excel": "Mars", "banner_principal_local": "banners/mars_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1pi3-8vZ-xr9p0AVR8tZmLaknj2kuhY7W/view",
+        "color_primario": "#0000FF", "hoja_excel": "Mars", "temas_excluir": [], "banner_principal_local": "banners/mars_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1pi3-8vZ-xr9p0AVR8tZmLaknj2kuhY7W/view",
         "secciones": [
             { "id": "mars_exclusivas", "nombre": "Exclusivas", "nombre_largo": "Banner Separador Exclusivas", "img_local": "banners/mars_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1tOcO3nn8Dsa55rldjciutv5cFr0h_VNP/view", "es_separador": True, "rss": [], "keywords": [], "exclusiones": [], "limite": 0 },
             { "id": "mars_tema_1", "nombre": "Corporativo", "nombre_largo": "Corporativo", "img_local": "banners/mars_corporativo.jpg", "img_url": "https://drive.google.com/file/d/1Vb7xaz32_V2lphPsAdJELhzPqeSERLJY/view", "rss": ["https://news.google.com/rss/search?q=Mars%20South%20Latam%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
@@ -241,23 +242,25 @@ CLIENTES_CONFIG = {
             { "id": "mars_tema_2", "nombre": "Pet Nutrition", "nombre_largo": "Pet Nutrition", "img_local": "banners/mars_petnutrition.jpg", "img_url": "https://drive.google.com/file/d/1gayVCjqbhHsrPvm6XqO4jWFifqixT0gh/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Pet%20Nutrition%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pedigree", "Whiskas", "Mars Pet Nutrition", "Guadalupe Perez Torelli", "Mars Petcare"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
             { "id": "mars_tema_3", "nombre": "Snacking", "nombre_largo": "Snacking", "img_local": "banners/mars_snacking.jpg", "img_url": "https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Snacking%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mars", "Snacking", "Mars Snacking"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
             { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Wouu%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Nestl%C3%A9%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Alican%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Eukanuba%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Purina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Metrive%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Sieger%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Wouu", "Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires"], "exclusiones": ["peru retail", "peru-retail", "mexico", "chile", "colombia"], "limite": 20 },
-            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", ], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru"], "limite": 20 }
+            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", ], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru", "huevo", "huevos"], "limite": 20 }
         ]
     },
     "BMS": {
-        "color_primario": "#1A4FB5", "hoja_excel": "BMS", "banner_principal_local": "banners/bms_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1ruuvwWkVLVgu-ZJJ6wwEPF8S6snh5mUX/view",
+        "color_primario": "#1A4FB5", "hoja_excel": "BMS", "temas_excluir": ["hormonas de crecimiento", "adermicina"], #Temas a excluir
+        "banner_principal_local": "banners/bms_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1ruuvwWkVLVgu-ZJJ6wwEPF8S6snh5mUX/view",
         "secciones": [
             { "id": "bms_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/bms_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1ZYHx7jQfemxr2S4g5crIpaGdDgJtXQds/view", "rss": [
-            "https://news.google.com/rss/search?q=%22Bristol+Myers+Squibb%22+OR+%22Bristol+Myers%22+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
-            "https://news.google.com/rss/search?q=AR%20BMS%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=AR%20Bristol%20Myers%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+            "https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20OR%20Bristol%20Myers%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20Bristol%20Myers%20Squibb%20OR%20Bristol%20Myers%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Silvana%20Kurkdjian%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/search?q=AR%20Silvana%20Kurkdjian%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=ipilimumab+OR+Opdivo+OR+nivolumab+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=Sotyktu+OR+deucravacitinib+OR+mavacamten+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=Camzyos+OR+abatacept+OR+Orencia+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=belatacept+OR+Nulojix+OR+daclatasvir+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=Daklinza+OR+entecavir+OR+Baraclude+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
             ], 
-            "keywords": ["Bristol", "Bristol-Myers", "Bristol Myers", "Bristol Myers Squibb", "Bristol-Myers Squibb", "BMS", "opdivo", "nivolumab", "Sotyktu", "deucravacitinib", "mavacamten", "Camzyos", "abatacept", "Orencia", "belatacept", "Nulojix", "daclatasvir", "Daklinza", "daclatasvir", "Daklinza", "entecavir", "Baraclude"], "exclusiones": ["parkinson"], "limite": 20 },
+            "keywords": ["Bristol", "Bristol-Myers", "Bristol Myers", "Bristol Myers Squibb", "Bristol-Myers Squibb", "BMS", "opdivo", "nivolumab", "Sotyktu", "deucravacitinib", "mavacamten", "Camzyos", "abatacept", "Orencia", "belatacept", "Nulojix", "daclatasvir", "Daklinza", "daclatasvir", "Daklinza", "entecavir", "Baraclude", "Silvana Kurkdjian"], "exclusiones": ["parkinson"], "limite": 20 },
             { "id": "bms_tema_2", "nombre": "Noticias del Sector", "nombre_largo": "Noticias del Sector", "img_local": "banners/bms_noticiasdelsector.jpg", "img_url": "https://drive.google.com/file/d/1FhuuaWsEr2ywBp_QzKGuvwZOm1W6gekK/view", "rss": [
             "https://news.google.com/rss/search?q=AR%20CILFA%20OR%20ANEFITS%20OR%20Medicamentos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
             "https://news.google.com/rss/search?q=AR%20%22Obras%20sociales%22%20OR%20%22Mario%20Lugones%22%20OR%20%22Ministerio%20de%20Salud%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
@@ -265,7 +268,7 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=AR%20%22Laboratorios%20farmac%C3%A9uticos%22%20OR%20%22IA%20Salud%22%20OR%20%22I%2BD%20farmac%C3%A9utica%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
             "https://news.google.com/rss/search?q=Gen%C3%A9ricos%20OR%20UIA%20OR%20CAEME%20OR%20%22Sistema%20de%20salud%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419" #global
             ],
-            "keywords": ["CILFA", "ANEFITS", "medicamentos", "obras sociales", "Mario Lugones", "Ministerio de Salud", "prepagas", "farma", "farmacéuticas", "farmacéuticos", "laboratorios farmacéuticos", "IA", "I+D farmacéutica", "genéricos", "UIA", "CAEME", "sistema de salud"], "exclusiones": ["PAMI"], "limite": 15,
+            "keywords": ["CILFA", "ANEFITS", "medicamentos", "obras sociales", "Mario Lugones", "Ministerio de Salud", "prepagas", "farma", "farmacéuticas", "farmacéuticos", "laboratorios farmacéuticos", "IA", "I+D farmacéutica", "genéricos", "UIA", "CAEME", "sistema de salud"], "exclusiones": ["PAMI", "patentes"], "limite": 15,
             "contexto_ia": "El interés es sobre notas relacionadas a las keywords que se encuentran enlistadas. REGLA ESTRICTA: La nota debe tratar sobre el sector salud/farmacéutico nacional. Rechazar policiales aislados, accidentes o casos clínicos individuales." },
             { "id": "bms_tema_3", "nombre": "Propiedad Intelectual / Biosimilares", "nombre_largo": "Propiedad Intelectual / Biosmilares", "img_local": "banners/bms_propiedadintelectualbiosimilares.jpg", "img_url": "https://drive.google.com/file/d/12A4oDRQ7BlmY_zop1a0ThahV1JOFQ8vk/view", 
             "rss": [
@@ -337,7 +340,7 @@ CLIENTES_CONFIG = {
         ]
     },
     "Arredo": {
-        "color_primario": "#0000FF", "hoja_excel": "Arredo", "banner_principal_local": "banners/arredo_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1MESH-P0uDrBHX83uNEstihGcH2eEC6UU/view",
+        "color_primario": "#0000FF", "hoja_excel": "Arredo", "temas_excluir": [], "banner_principal_local": "banners/arredo_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1MESH-P0uDrBHX83uNEstihGcH2eEC6UU/view",
         "secciones": [
             { "id": "arredo_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/arredo_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/18HsLa3b-kNOtgaR5YYxMlaUo6UvHpxJH/view", "rss": ["https://news.google.com/rss/search?q=Arredo%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
             { "id": "arredo_tema_2", "nombre": "Mención", "nombre_largo": "Menciones", "img_local": "banners/arredo_menciones.jpg", "img_url": "https://drive.google.com/file/d/19U90rGK_pWlKGssHxlYX9Zu-cQGoA4Ce/view", "rss": [], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
@@ -349,16 +352,21 @@ CLIENTES_CONFIG = {
         ]
     },
     "Amanco Wavin": {
-        "color_primario": "#000099", "hoja_excel": "Amanco", "banner_principal_local": "banners/amanco_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1gFQAqAPm3xiGlDKM72Plr5fT19IF-5Z4/view",
+        "color_primario": "#000099", "hoja_excel": "Amanco", "temas_excluir": [], "banner_principal_local": "banners/amanco_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1gFQAqAPm3xiGlDKM72Plr5fT19IF-5Z4/view",
         "secciones": [
-            { "id": "amanco_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/amanco_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1_vg5keIN7jMt7FCOFjGxgVNbXGxGnjOW/view", "rss": ["https://news.google.com/rss/search?q=Amanco%20Wavin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Amanco Wavin"], "exclusiones": [], "limite": 20 },
-            { "id": "amanco_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/amanco_competencia.jpg", "img_url": "https://drive.google.com/file/d/1nQos7Azcml2O5DRZCD4Hfrs-xe5Mao8W/view", "rss": [], "keywords": ["FV", "Ferrum", "Rotoplas", "DEMA", "Duke", "Aqualaf", "AWADUCT", "Roca"], "exclusiones": [], "limite": 10 },
-            { "id": "amanco_tema_3", "nombre": "Industria e Infraestructura", "nombre_largo": "Industria e Infraestructura", "img_local": "banners/amanco_industriaeinfraestructura.jpg", "img_url": "https://drive.google.com/file/d/1-6eOexICM6t-Iiro5dIUfP1WDSLxz7U6/view", "rss": ["https://news.google.com/rss/search?q=infraestructura%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=prefabricada%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ducha%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Aysa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ARG%20alba%C3%B1il%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["vivienda", "obra pública", "Infraestructura", "rutas", "construcción", "construir", "albañil", "inflación", "obras", "agua", "riego", "plomero", "plomería", "baño", "baños", "hídricos", "materiales", "Loma Negra", "prefabricada", "casa", "casas", "Aysa", "AySa"], "exclusiones": ["rural", "sanitaria"], "limite": 10 },
-            { "id": "amanco_tema_4", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/amanco_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1ILvTnUcm-FF7lbWStCXUqYsRe8pyhxHB/view", "rss": ["https://news.google.com/search?q=Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["sustentable", "sustentabilidad", "Empresa B"], "exclusiones": [], "limite": 10 }
+            { "id": "amanco_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/amanco_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1_vg5keIN7jMt7FCOFjGxgVNbXGxGnjOW/view", "rss": ["https://news.google.com/rss/search?q=Amanco%20Wavin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20Amanco%20Wavin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Amanco Wavin"], "exclusiones": [], "limite": 20 },
+            { "id": "amanco_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/amanco_competencia.jpg", "img_url": "https://drive.google.com/file/d/1nQos7Azcml2O5DRZCD4Hfrs-xe5Mao8W/view", "rss": ["https://news.google.com/rss/search?q=FV%20OR%20Ferrum%20OR%20Rotoplas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=%22DEMA%22%20OR%20Duke%20OR%20Aqualaf%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Awaduct%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+            ], "keywords": ["FV", "Ferrum", "Rotoplas", "DEMA", "Duke", "Aqualaf", "AWADUCT", "Roca"], "exclusiones": [], "limite": 10 },
+            { "id": "amanco_tema_3", "nombre": "Industria e Infraestructura", "nombre_largo": "Industria e Infraestructura", "img_local": "banners/amanco_industriaeinfraestructura.jpg", "img_url": "https://drive.google.com/file/d/1-6eOexICM6t-Iiro5dIUfP1WDSLxz7U6/view", "rss": ["https://news.google.com/rss/search?q=AR%20infraestructura%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20prefabricada%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ducha%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AySA%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20alba%C3%B1il%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Camara%20argentina%20de%20la%20construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=CAMARCO%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["vivienda", "obra pública", "Infraestructura", "rutas", "construcción", "construir", "albañil", "inflación", "obras", "agua", "riego", "plomero", "plomería", "baño", "baños", "hídricos", "materiales", "Loma Negra", "prefabricada", "casa", "casas", "Aysa", "AySa", "Camarco"], "exclusiones": ["rural", "sanitaria"], "limite": 10 },
+            { "id": "amanco_tema_4", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/amanco_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1ILvTnUcm-FF7lbWStCXUqYsRe8pyhxHB/view", "rss": ["https://news.google.com/rss/search?q=AR%20Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["sustentable", "sustentabilidad", "sostenible", "Empresa B"], "exclusiones": [], "limite": 10 }
         ]
     },
     "Booking": {
-        "color_primario": "#0000FF", "hoja_excel": "Booking", "banner_principal_local": "banners/booking_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1TKf_eTU4sWBk_9pYG5iBI4r6CKA52Fz4/view",
+        "color_primario": "#0000FF", "hoja_excel": "Booking", "temas_excluir": [], "banner_principal_local": "banners/booking_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1TKf_eTU4sWBk_9pYG5iBI4r6CKA52Fz4/view",
         "secciones": [
             { "id": "booking_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/booking_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1IkOGzUtBEw_TWkf5AgdWK4-5yXmCk5gf/view", "rss": ["https://news.google.com/rss/search?q=Booking%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Booking", "Booking.com", "Booking Argentina", "Booking Holding"], "exclusiones": ["Bavaro", "ArchDaily"], "limite": 20 },
             { "id": "booking_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/booking_competencia.jpg", "img_url": "https://drive.google.com/file/d/1SD6Qf6FxN8lvIuwqiywS8hCThh5IGH4B/view", "rss": ["https://news.google.com/rss/search?q=Airbnb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Almundo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Turismocity%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tripadvisor%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Expedia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Airbnb", "Turismocity", "Almundo", "Tripadvisor", "Expedia"], "exclusiones": [], "limite": 20 },
@@ -1000,7 +1008,7 @@ def prefiltrar_item_rss(it, timeframe, exclusiones=None, df_medios=None):
             _, tier, _ = buscar_metricas_medio(df_medios, link, medio)
             if es_tier_1_o_2(tier):
                 return ""
-        return motivo
+        return ""  # v5.36: se conservan TODAS (fecha/exclusión se registran en la auditoría dentro de procesar_seccion)
     except Exception:
         return ""
 
@@ -1221,7 +1229,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
 
         if link_norm and link_norm in historial_previo:
             logger(f"    📜 EXCLUIDA [Gráfica] por historial anterior del cliente: {m_limpio[:20]} - {ng['titulo'][:30]}...")
-            if es_tier_1_o_2(tier):
+            if True:
                 evaluaciones_auditoria.append({
                     "medio": m_limpio, "titulo": ng['titulo'], "link": ng['link'],
                     "estado": "EXCLUIDA_HISTORIAL", "motivo": "Nota ya publicada en un clipping de días anteriores", "es_ia": False,
@@ -1231,7 +1239,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
 
         if (link_norm and link_norm in links_sumados_global) or (u_clean in urls_resueltas_global):
             logger(f"    🔁 EXCLUIDA [Gráfica] por nota duplicada: {m_limpio[:20]} - {ng['titulo'][:30]}...")
-            if es_tier_1_o_2(tier):
+            if True:
                 evaluaciones_auditoria.append({
                     "medio": m_limpio, "titulo": ng['titulo'], "link": ng['link'],
                     "estado": "EXCLUIDA_DUPLICADA", "motivo": "Nota ya ingresada en otra sección del reporte actual", "es_ia": False,
@@ -1327,7 +1335,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         if link_norm and link_norm in historial_previo:
             logger(f"    📜 EXCLUIDA por historial anterior del cliente: {medio[:20]} - {titulo[:30]}...")
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
-            if es_tier_1_o_2(tier_test):
+            if True:
                 evaluaciones_auditoria.append({
                     "medio": medio, "titulo": titulo, "link": link_orig,
                     "estado": "EXCLUIDA_HISTORIAL", "motivo": "Nota ya publicada en un clipping de días anteriores", "es_ia": False,
@@ -1340,7 +1348,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         if (link_norm and link_norm in links_sumados_global) or (t_compact_pre and t_compact_pre in titulos_resueltos_global and len(t_compact_pre) > 15):
             logger(f"    🔁 EXCLUIDA por nota duplicada (URL origen o Título): {medio[:20]} - {titulo[:30]}...")
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
-            if es_tier_1_o_2(tier_test):
+            if True:
                 evaluaciones_auditoria.append({
                     "medio": medio, "titulo": titulo, "link": link_orig,
                     "estado": "EXCLUIDA_DUPLICADA", "motivo": "La nota o el título exacto ya fue incluido en otra sección o de forma manual", "es_ia": False,
@@ -1351,7 +1359,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         if origen != 'Manual' and not es_fecha_en_rango(fecha_rss_raw, timeframe_google):
             logger(f"    📅 EXCLUIDA por antigüedad (> {timeframe_google}): {medio[:20]} - {titulo[:30]}...")
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
-            if es_tier_1_o_2(tier_test):
+            if True:
                 evaluaciones_auditoria.append({
                     "medio": medio, "titulo": titulo, "link": link_orig,
                     "estado": "EXCLUIDA_FECHA", "motivo": f"Excede el rango de tiempo seleccionado ({timeframe_google})", "es_ia": False,
@@ -1362,7 +1370,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         if origen != 'Manual':
             texto_pre = f"{titulo} {desc_rss}"
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
-            es_top_tier = es_tier_1_o_2(tier_test)
+            es_top_tier = True
 
             motivo_extr = motivo_portal_extranjero(link_orig, medio, texto_pre, url_fuente)
             if motivo_extr:
@@ -1378,6 +1386,11 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             if sec_id in SECCIONES_FILTRO_AR_ESTRICTO_RSS and aplica_filtro_ar(cliente_nombre, sec_id) \
                and not es_sitio_permitido_ar(link_orig, medio, texto_pre):
                 logger(f"    🌎 EXCLUIDA [Competencia] sitio no argentino (sin leer nota): {medio[:20]} ({link_orig})")
+                evaluaciones_auditoria.append({
+                    "medio": medio, "titulo": titulo, "link": link_orig,
+                    "estado": "EXCLUIDA_EXTRANJERO", "motivo": "Sitio no argentino (Competencia, sin leer nota)", "es_ia": False,
+                    "origen_fuente": origen, "bloque_data": bloque_pre
+                })
                 continue
 
             if contiene_exclusion(texto_pre, exclusiones):
@@ -1413,7 +1426,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             if u_clean in urls_resueltas_global:
                 logger(f"    🔁 EXCLUIDA por url de destino duplicada: {medio[:20]} - {titulo[:30]}...")
                 _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
-                if es_tier_1_o_2(tier_test):
+                if True:
                     evaluaciones_auditoria.append({
                         "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
                         "estado": "EXCLUIDA_DUPLICADA", "motivo": "La url destino exacta ya fue procesada (Ej: carga manual)", "es_ia": False,
@@ -1492,7 +1505,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             if origen != 'Manual': 
                 logger(f"    ❌ EXCLUIDA por error al acceder a la web: {medio[:20]} - {titulo[:30]}...")
                 _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
-                if es_tier_1_o_2(tier_test):
+                if True:
                     evaluaciones_auditoria.append({
                         "medio": medio, "titulo": titulo, "link": link_orig, "link_destino": link_destino,
                         "estado": "EXCLUIDA_ERROR", "motivo": f"Inaccesible o error web: {str(e)}", "es_ia": False,
@@ -1532,7 +1545,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
 
         if origen != 'Manual':
             texto_eval = f"{titulo} {bajada} {oracion}"
-            es_top_tier = es_tier_1_o_2(tier)
+            es_top_tier = True
 
             motivo_extr = motivo_portal_extranjero(link_destino, medio, texto_eval, url_fuente)
             if motivo_extr:
@@ -1790,6 +1803,10 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
 def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente, cliente_nombre, logger, timeframe_google, busquedas_extra=None, solo_manuales=False, solo_banners=False):
     color = configuracion_cliente["color_primario"]
     estructura = configuracion_cliente["secciones"]
+    excl_cliente_extra = configuracion_cliente.get('temas_excluir', [])
+    if excl_cliente_extra:  # v5.37: se suman a las exclusiones de TODAS las secciones
+        estructura = [s_ if s_.get('es_separador') else {**s_, 'exclusiones': list(dict.fromkeys(list(s_.get('exclusiones', [])) + excl_cliente_extra))} for s_ in estructura]
+        logger(f"🚫 Temas excluidos por el cliente: {', '.join(excl_cliente_extra)}")
     data_editor = []
     data_auditoria = []
     links_sumados_global = set()

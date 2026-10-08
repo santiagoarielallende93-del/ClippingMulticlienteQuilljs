@@ -1,2 +1,2 @@
 2.1
-https://github.com/<usuario>/<repo>/releases/download/v2.1/Clipping.exe
+https://github.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/releases/download/2.1/main.exe

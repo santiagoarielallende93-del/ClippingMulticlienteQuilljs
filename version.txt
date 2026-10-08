@@ -1,1 +1,2 @@
-2.0
+2.1
+https://github.com/<usuario>/<repo>/releases/download/v2.1/Clipping.exe

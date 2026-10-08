@@ -24,6 +24,7 @@ import io
 import csv
 import queue
 import requests
+import subprocess
 import threading
 
 # ====================================================================
@@ -45,7 +46,7 @@ SITIOS_COM_ARGENTINOS = [
     "infobae.com", "iprofesional.com", "elonce.com", "ambito.com", "cronista.com", "baenegocios.com",
     "clarin.com", "perfil.com", "eldia.com", "minutouno.com", "mdzol.com", "diarioregistrado.com",
     "elintransigente.com", "lapoliticaonline.com", "cadena3.com", "saludiario.com", "infocampo.com",
-    "eldiarioar.com", "noticiasargentinas.com", "mejorinformado.com", "infonegocios.com", "0223.com", "pharmabiz.net", "pmfarma.com", "cienciatecno.com", "presenterse.com", "yahoo.com", "latamsalud.com", "parasusalud.tv", "la100.cienradios.com", "gov.ar", "eldestapeweb.com", "campoenaccion.com"
+    "eldiarioar.com", "noticiasargentinas.com", "mejorinformado.com", "infonegocios.com", "0223.com", "pharmabiz.net", "pmfarma.com", "cienciatecno.com", "presenterse.com", "yahoo.com", "latamsalud.com", "parasusalud.tv", "la100.cienradios.com", "gov.ar", "eldestapeweb.com", "campoenaccion.com", "totalmedios.com", "nuevodiarioweb.com"
 ]
 
 # Si el sitio no es .ar ni está en la lista, se acepta solo si el texto habla de Argentina (agregar/quitar a gusto)
@@ -136,7 +137,7 @@ DOMINIOS_EXTRANJEROS = ['.mx', '.pe', '.co', '.cl', '.es', '.uy', '.py', '.ve', 
 DOMINIOS_EXTRANJEROS_EXACTOS = [
     'marca.com', 'lavanguardia.com', 'elconfidencial.com', 'elperiodico.com', 'elespanol.com', 'okdiario.com',
     'libertaddigital.com', 'mundodeportivo.com', 'eltiempo.com', 'semana.com', 'eluniverso.com',
-    'elnuevodia.com', 'prensalibre.com', 'laprensagrafica.com', 'elperiodicomediterraneo.com', 'hsbnoticias.com', 'murciaplaza.com', 'dw.com', 'fomoera.com', 'hellpress.com', 'revistaespejo.com', 'tribunavalladolid.com', 'vanidades.com', 'capitalmadrid.com'
+    'elnuevodia.com', 'prensalibre.com', 'laprensagrafica.com', 'elperiodicomediterraneo.com', 'hsbnoticias.com', 'murciaplaza.com', 'dw.com', 'fomoera.com', 'hellpress.com', 'revistaespejo.com', 'tribunavalladolid.com', 'vanidades.com', 'capitalmadrid.com', 'tikr.com', 'tusbuenasnoticias.com'
 ]
 
 SUBDOMINIOS_EXTRANJEROS = ['mx', 'pe', 'co', 'cl', 'uy', 'py', 've', 'ec', 'bo', 'cr', 'gt', 'hn', 'ni', 'sv',
@@ -167,11 +168,12 @@ CLIENTES_CONFIG = {
             {
                 "id": "exclusivas", "nombre": "Exclusivas", "nombre_largo": "Exclusivas (MSD Salud Animal)",
                 "img_local": "banners/exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1cUyr83JrnQIo0XqMFltpoQkbuskaN41C/view", 
-                "rss": ["https://news.google.com/rss/search?q=%22MSD%20Salud%20Animal%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22Walter%20Comas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22Clara%20Fern%C3%A1ndez%20Boglione%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/search?q=Pablo%20Nervi%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-                "keywords": ["MSD Salud Animal", "MSD", "Walter Comas", "Clara Fernández Boglione", "Pablo Nervi", "Emiliano Segurado"], "exclusiones": [], "limite": 20
+                "rss": ["https://news.google.com/rss/search?q=MSD%20Salud%20Animal%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=Walter%20Comas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=Clara%20Fern%C3%A1ndez%20Boglione%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=Pablo%20Nervi%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=Eugenia%20Sanz%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "keywords": ["MSD Salud Animal", "MSD", "Walter Comas", "Clara Fernández Boglione", "Pablo Nervi", "Emiliano Segurado", "Eugenia Sanz"], "exclusiones": [], "limite": 20
             },
             {
                 "id": "ceo", "nombre": "CEO", "nombre_largo": "CEO",
@@ -234,15 +236,23 @@ CLIENTES_CONFIG = {
         "color_primario": "#0000FF", "hoja_excel": "Mars", "temas_excluir": [], "banner_principal_local": "banners/mars_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1pi3-8vZ-xr9p0AVR8tZmLaknj2kuhY7W/view",
         "secciones": [
             { "id": "mars_exclusivas", "nombre": "Exclusivas", "nombre_largo": "Banner Separador Exclusivas", "img_local": "banners/mars_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1tOcO3nn8Dsa55rldjciutv5cFr0h_VNP/view", "es_separador": True, "rss": [], "keywords": [], "exclusiones": [], "limite": 0 },
-            { "id": "mars_tema_1", "nombre": "Corporativo", "nombre_largo": "Corporativo", "img_local": "banners/mars_corporativo.jpg", "img_url": "https://drive.google.com/file/d/1Vb7xaz32_V2lphPsAdJELhzPqeSERLJY/view", "rss": ["https://news.google.com/rss/search?q=Mars%20South%20Latam%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            { "id": "mars_tema_1", "nombre": "Corporativo", "nombre_largo": "Corporativo", "img_local": "banners/mars_corporativo.jpg", "img_url": "https://drive.google.com/file/d/1Vb7xaz32_V2lphPsAdJELhzPqeSERLJY/view", "rss": ["https://news.google.com/rss/search?q=AR%20Mars%20South%20Latam%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+            "https://news.google.com/rss/search?q=Mars%20South%20Latam%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Mars%20Petcare%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+            "https://news.google.com/rss/search?q=AR%20Mars%20Petcare%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
             "https://news.google.com/rss/search?q=Romina%20Ferreyra%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Mattia%20Iannone%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=Whiskas%20when%3A7d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
-            "keywords": ["Mars", "South", "Latam", "Mars South Latam", "Romina Ferreyra", "Mattia Iannone", "Whiskas", "Pedigree"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
-            { "id": "mars_tema_2", "nombre": "Pet Nutrition", "nombre_largo": "Pet Nutrition", "img_local": "banners/mars_petnutrition.jpg", "img_url": "https://drive.google.com/file/d/1gayVCjqbhHsrPvm6XqO4jWFifqixT0gh/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Pet%20Nutrition%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pedigree", "Whiskas", "Mars Pet Nutrition", "Guadalupe Perez Torelli", "Mars Petcare"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
-            { "id": "mars_tema_3", "nombre": "Snacking", "nombre_largo": "Snacking", "img_local": "banners/mars_snacking.jpg", "img_url": "https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view", "rss": ["https://news.google.com/rss/search?q=Mars%20Snacking%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mars", "Snacking", "Mars Snacking"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
-            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Wouu%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Nestl%C3%A9%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Alican%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Eukanuba%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Purina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Metrive%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Sieger%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Wouu", "Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires"], "exclusiones": ["peru retail", "peru-retail", "mexico", "chile", "colombia"], "limite": 20 },
-            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", ], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru", "huevo", "huevos"], "limite": 20 }
+            "https://news.google.com/rss/search?q=Mar%C3%ADa%20No%C3%ABl%20Travetto%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419","https://news.google.com/rss/search?q=Guadalupe%20P%C3%A9rez%20Torelli%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+            "keywords": ["Mars", "South", "Latam", "Mars South Latam", "Romina Ferreyra", "Mattia Iannone", "Whiskas", "Pedigree", "María Noël Travetto", "Guadalupe Pérez Torelli"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
+            { "id": "mars_tema_2", "nombre": "Pet Nutrition", "nombre_largo": "Pet Nutrition", "img_local": "banners/mars_petnutrition.jpg", "img_url": "https://drive.google.com/file/d/1gayVCjqbhHsrPvm6XqO4jWFifqixT0gh/view", "rss": ["https://news.google.com/rss/search?q=AR%20Mars%20Petcare%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Guadalupe%20P%C3%A9rez%20Torelli%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pedigree", "Whiskas", "Guadalupe Perez Torelli", "Mars Petcare"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
+            { "id": "mars_tema_3", "nombre": "Snacking", "nombre_largo": "Snacking", "img_local": "banners/mars_snacking.jpg", "img_url": "https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view", "rss": ["https://news.google.com/rss/search?q=AR%20Mars%20Snacking%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mars", "Snacking", "Mars Snacking"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
+            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Wouu%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Nestl%C3%A9%2Bpurina%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Alican%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Eukanuba%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Purina%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Metrive%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Sieger%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Wouu", "Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires", "Dogrun", "Old Prince", "Fawna", "Kongo"], "exclusiones": ["peru retail", "peru-retail", "mexico", "chile", "colombia"], "limite": 20 },
+            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Alimento%20mascota%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20perros%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20gatos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rsssearch?q=AR%20mascotas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", "nutrición animal", "nutrición de animales", "WSAVA"], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru", "huevo", "huevos"], "limite": 20 }
         ]
     },
     "BMS": {
@@ -253,7 +263,7 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=Bristol%20Myers%20Squibb%20OR%20Bristol%20Myers%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=AR%20Bristol%20Myers%20Squibb%20OR%20Bristol%20Myers%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Silvana%20Kurkdjian%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/search?q=AR%20Silvana%20Kurkdjian%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20Silvana%20Kurkdjian%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=ipilimumab+OR+Opdivo+OR+nivolumab+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=Sotyktu+OR+deucravacitinib+OR+mavacamten+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
             "https://news.google.com/rss/search?q=Camzyos+OR+abatacept+OR+Orencia+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
@@ -268,13 +278,13 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=AR%20%22Laboratorios%20farmac%C3%A9uticos%22%20OR%20%22IA%20Salud%22%20OR%20%22I%2BD%20farmac%C3%A9utica%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", #AR
             "https://news.google.com/rss/search?q=Gen%C3%A9ricos%20OR%20UIA%20OR%20CAEME%20OR%20%22Sistema%20de%20salud%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419" #global
             ],
-            "keywords": ["CILFA", "ANEFITS", "medicamentos", "obras sociales", "Mario Lugones", "Ministerio de Salud", "prepagas", "farma", "farmacéuticas", "farmacéuticos", "laboratorios farmacéuticos", "IA", "I+D farmacéutica", "genéricos", "UIA", "CAEME", "sistema de salud"], "exclusiones": ["PAMI", "patentes"], "limite": 15,
+            "keywords": ["CILFA", "ANEFITS", "obras sociales", "Mario Lugones", "Ministerio de Salud", "prepagas", "farma", "farmacéuticas", "farmacéuticos", "laboratorios farmacéuticos", "IA", "I+D farmacéutica", "genéricos", "UIA", "CAEME", "sistema de salud"], "exclusiones": ["PAMI", "patentes"], "limite": 15,
             "contexto_ia": "El interés es sobre notas relacionadas a las keywords que se encuentran enlistadas. REGLA ESTRICTA: La nota debe tratar sobre el sector salud/farmacéutico nacional. Rechazar policiales aislados, accidentes o casos clínicos individuales." },
             { "id": "bms_tema_3", "nombre": "Propiedad Intelectual / Biosimilares", "nombre_largo": "Propiedad Intelectual / Biosmilares", "img_local": "banners/bms_propiedadintelectualbiosimilares.jpg", "img_url": "https://drive.google.com/file/d/12A4oDRQ7BlmY_zop1a0ThahV1JOFQ8vk/view", 
             "rss": [
             "https://news.google.com/rss/search?q=Biosimilares+OR+Patentes+OR+PCT+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
             ], 
-            "keywords": ["biosimilares", "medicamentos", "patentes", "farmacéuticas", "PCT"], "exclusiones": ["autos", "parkinson"], "limite": 10 },
+            "keywords": ["biosimilares", "patentes", "farmacéuticas", "PCT"], "exclusiones": ["autos", "parkinson"], "limite": 10 },
             { "id": "bms_tema_4", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/bms_competencia.jpg", "img_url": "https://drive.google.com/file/d/1rZfcOHZGfwsk40-L8Ti0fIlp6z6spM9G/view", 
             "rss": [ #mayoria de busquedas en AR
             "https://news.google.com/rss/search?q=Elea+OR+%22Laboratorio+Bag%C3%B3%22+OR+Bayer+-Leverkusen+-futbol+-champions+when:1d&hl=es-419&gl=AR&ceid=AR:es-419",
@@ -336,18 +346,28 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=%22Procuraci%C3%B3n+de+%C3%B3rganos%22+OR+%22M%C3%A9dula+%C3%B3sea%22+OR+%22Ablaci%C3%B3n+de+%C3%B3rganos%22+OR+Trasplante+when:1d&hl=es-419&gl=AR&ceid=AR:es-419"
             ], 
             "keywords": ["trasplante", "trasplantes", "donación de órganos", "donacion de organos", "donación de tejidos", "tejidos", "incucai", "INCUCAI", "procuración de órganos", "médula ósea", "ablación de órganos", "trasplante"], "exclusiones": ["parkinson"], "limite": 10,
-            "contexto_ia": "El interés es sobre trasplantes, donación y ablación de órganos. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico/donación, DEBE SER APROBADA. Solo rechazar explícitamente si se nombra una organización o caso de donación de otro país distinto a Argentina." }
+            "contexto_ia": "El interés es sobre trasplantes, donación y ablación de órganos. REGLA ESTRICTA: Si la nota NO especifica un país explícitamente pero trata el tema médico/donación, DEBE SER APROBADA. Solo rechazar explícitamente si se nombra una organización, en caso de donación de otro país distinto a Argentina o si se trata de un caso particular" }
         ]
     },
     "Arredo": {
         "color_primario": "#0000FF", "hoja_excel": "Arredo", "temas_excluir": [], "banner_principal_local": "banners/arredo_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1MESH-P0uDrBHX83uNEstihGcH2eEC6UU/view",
         "secciones": [
             { "id": "arredo_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/arredo_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/18HsLa3b-kNOtgaR5YYxMlaUo6UvHpxJH/view", "rss": ["https://news.google.com/rss/search?q=Arredo%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
-            { "id": "arredo_tema_2", "nombre": "Mención", "nombre_largo": "Menciones", "img_local": "banners/arredo_menciones.jpg", "img_url": "https://drive.google.com/file/d/19U90rGK_pWlKGssHxlYX9Zu-cQGoA4Ce/view", "rss": [], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
-            { "id": "arredo_tema_3", "nombre": "Recursos Humanos", "nombre_largo": "Recursos Humanos", "img_local": "banners/arredo_recursoshumanos.jpg", "img_url": "https://drive.google.com/file/d/1zXnXWvMT-CKfFEgB2dbjqNZWtOvOCisQ/view", "rss": [], "keywords": ["inclusión laboral", "informalidad", "becas", "pasantías", "mejores empresas", "mejor empresa", "trabajar", "empleo", "derechos laborales", "mercado laboral", "liderazgo"], "exclusiones": [], "limite": 20 },
-            { "id": "arredo_tema_4", "nombre": "Diversidad y Género", "nombre_largo": "Diversidad y Género", "img_local": "banners/arredo_diversidadygenero.jpg", "img_url": "https://drive.google.com/file/d/17P15vUG1zciLz_-j3sFKUax-nIpqAcsO/view", "rss": [], "keywords": ["mujeres", "inclusión", "mujeres", "mujeres emprendedoras", "mujeres profesionales", "violencia de género", "brecha salarial", "primer empleo", "empleo joven"], "exclusiones": [], "limite": 20 },
-            { "id": "arredo_tema_5", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/arredo_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1WSuNM_EBYjj45-K2T-qtFtONuseJ7TCU/view", "rss": [], "keywords": ["Empresa B", "sustentabilidad", "energía renovable", "reciclar", "reciclado", "economía circular"], "exclusiones": [], "limite": 10 },
-            { "id": "arredo_tema_6", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/arredo_competencia.jpg", "img_url": "https://drive.google.com/file/d/1VxLJRHbvfqtOgLBWeVqGquFxnNX0-swx/view", "rss": [], "keywords": ["Home Collection", "Duvet Home", "Kavanagh", "Landmark", "Indian", "Casablanca", "Jean Cartier", "Ad Home", "Egger", "H&G Home", "AltoRancho", "Franco Valente"], "exclusiones": [], "limite": 10 },
+            { "id": "arredo_tema_2", "nombre": "Mención", "nombre_largo": "Menciones", "img_local": "banners/arredo_menciones.jpg", "img_url": "https://drive.google.com/file/d/19U90rGK_pWlKGssHxlYX9Zu-cQGoA4Ce/view", "rss": ["https://news.google.com/rss/search?q=Arredo%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
+            { "id": "arredo_tema_3", "nombre": "Recursos Humanos", "nombre_largo": "Recursos Humanos", "img_local": "banners/arredo_recursoshumanos.jpg", "img_url": "https://drive.google.com/file/d/1zXnXWvMT-CKfFEgB2dbjqNZWtOvOCisQ/view", "rss": ["https://news.google.com/search?q=Empleabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["empleabilidad", "inclusión laboral", "informalidad", "becas", "pasantías", "mejores empresas", "mejor empresa", "trabajar", "empleo", "derechos laborales", "mercado laboral", "liderazgo"], "exclusiones": [], "limite": 10 },
+            { "id": "arredo_tema_4", "nombre": "Diversidad y Género", "nombre_largo": "Diversidad y Género", "img_local": "banners/arredo_diversidadygenero.jpg", "img_url": "https://drive.google.com/file/d/17P15vUG1zciLz_-j3sFKUax-nIpqAcsO/view", "rss": ["https://news.google.com/search?q=AR%20Diversidad%20y%20g%C3%A9nero%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["mujeres", "inclusión", "mujeres", "mujeres emprendedoras", "mujeres profesionales", "violencia de género", "brecha salarial", "primer empleo", "empleo joven"], "exclusiones": [], "limite": 10 },
+            { "id": "arredo_tema_5", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/arredo_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1WSuNM_EBYjj45-K2T-qtFtONuseJ7TCU/view", "rss": ["https://news.google.com/rss/search?q=AR%20Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Empresa B", "sustentabilidad", "energía renovable", "reciclar", "reciclado", "economía circular"], "exclusiones": [], "limite": 10 },
+            { "id": "arredo_tema_6", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/arredo_competencia.jpg", "img_url": "https://drive.google.com/file/d/1VxLJRHbvfqtOgLBWeVqGquFxnNX0-swx/view", "rss": ["https://news.google.com/rss/search?q=Home%20Collection%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Duvet%20Home%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Kavanagh%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Landmark%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20%22Casablanca%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Jean%20Cartier%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=%22Ad%20Home%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=%22Egger%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=H%26G%20Home%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=%22Alto%20Rancho%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Franco%20Valente%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Home Collection", "Duvet Home", "Kavanagh", "Landmark", "Indian", "Casablanca", "Jean Cartier", "Ad Home", "Egger", "H&G Home", "AltoRancho", "Franco Valente"], "exclusiones": [], "limite": 10 },
             { "id": "arredo_tema_7", "nombre": "Noticias de Interes", "nombre_largo": "Noticias de Interes", "img_local": "banners/arredo_noticiasdeinteres.jpg", "img_url": "https://drive.google.com/file/d/1rVjjNmlVdhJU2Ed7wJVV4wwhkqeF70rH/view", "rss": ["https://news.google.com/rss/search?q=industria%20textil%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=inflaci%C3%B3n%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["textil", "industria", "industria textil", "fabrica", "fabricas", "inflación", "pymes", "consumo", "pobreza", "dormir", "decoración", "ropa de cama", "hábitos de sueño", "ecommerce"], "exclusiones": [], "limite": 20 }
         ]
     },
@@ -356,12 +376,12 @@ CLIENTES_CONFIG = {
         "secciones": [
             { "id": "amanco_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/amanco_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1_vg5keIN7jMt7FCOFjGxgVNbXGxGnjOW/view", "rss": ["https://news.google.com/rss/search?q=Amanco%20Wavin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20Amanco%20Wavin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Amanco Wavin"], "exclusiones": [], "limite": 20 },
             { "id": "amanco_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/amanco_competencia.jpg", "img_url": "https://drive.google.com/file/d/1nQos7Azcml2O5DRZCD4Hfrs-xe5Mao8W/view", "rss": ["https://news.google.com/rss/search?q=FV%20OR%20Ferrum%20OR%20Rotoplas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=%22DEMA%22%20OR%20Duke%20OR%20Aqualaf%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=%22DEMA%22%20OR%20Aqualaf%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Awaduct%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
             ], "keywords": ["FV", "Ferrum", "Rotoplas", "DEMA", "Duke", "Aqualaf", "AWADUCT", "Roca"], "exclusiones": [], "limite": 10 },
             { "id": "amanco_tema_3", "nombre": "Industria e Infraestructura", "nombre_largo": "Industria e Infraestructura", "img_local": "banners/amanco_industriaeinfraestructura.jpg", "img_url": "https://drive.google.com/file/d/1-6eOexICM6t-Iiro5dIUfP1WDSLxz7U6/view", "rss": ["https://news.google.com/rss/search?q=AR%20infraestructura%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20prefabricada%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ducha%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AySA%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20alba%C3%B1il%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Camara%20argentina%20de%20la%20construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=CAMARCO%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["vivienda", "obra pública", "Infraestructura", "rutas", "construcción", "construir", "albañil", "inflación", "obras", "agua", "riego", "plomero", "plomería", "baño", "baños", "hídricos", "materiales", "Loma Negra", "prefabricada", "casa", "casas", "Aysa", "AySa", "Camarco"], "exclusiones": ["rural", "sanitaria"], "limite": 10 },
+            "https://news.google.com/rss/search?q=CAMARCO%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["vivienda", "obra pública", "Infraestructura", "rutas", "construcción", "construir", "albañil", "inflación", "obras", "agua", "riego", "plomero", "plomería", "baño", "baños", "hídricos", "materiales", "Loma Negra", "prefabricada", "casa", "casas", "Aysa", "AySa", "Camarco"], "exclusiones": ["rural", "sanitaria", "futbol"], "limite": 15 },
             { "id": "amanco_tema_4", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/amanco_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1ILvTnUcm-FF7lbWStCXUqYsRe8pyhxHB/view", "rss": ["https://news.google.com/rss/search?q=AR%20Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["sustentable", "sustentabilidad", "sostenible", "Empresa B"], "exclusiones": [], "limite": 10 }
         ]
     },
@@ -369,13 +389,24 @@ CLIENTES_CONFIG = {
         "color_primario": "#0000FF", "hoja_excel": "Booking", "temas_excluir": [], "banner_principal_local": "banners/booking_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1TKf_eTU4sWBk_9pYG5iBI4r6CKA52Fz4/view",
         "secciones": [
             { "id": "booking_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/booking_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1IkOGzUtBEw_TWkf5AgdWK4-5yXmCk5gf/view", "rss": ["https://news.google.com/rss/search?q=Booking%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Booking", "Booking.com", "Booking Argentina", "Booking Holding"], "exclusiones": ["Bavaro", "ArchDaily"], "limite": 20 },
-            { "id": "booking_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/booking_competencia.jpg", "img_url": "https://drive.google.com/file/d/1SD6Qf6FxN8lvIuwqiywS8hCThh5IGH4B/view", "rss": ["https://news.google.com/rss/search?q=Airbnb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Almundo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Turismocity%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tripadvisor%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Expedia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Airbnb", "Turismocity", "Almundo", "Tripadvisor", "Expedia"], "exclusiones": [], "limite": 20 },
-            { "id": "booking_tema_3", "nombre": "Turismo", "nombre_largo": "Turismo", "img_local": "banners/booking_turismo.jpg", "img_url": "https://drive.google.com/file/d/1PVMiBHJuTBdm7YQn6OF1c9F31gvyckZR/view", "rss": ["https://news.google.com/rss/search?q=ARG%20%22Turismo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ARG%20%22Vacaciones%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ARG%20%22viajes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["turismo", "viajes", "viajar", "vacaciones", "pasajes", "vuelos", "hoteles", "hospedaje"], "exclusiones": ["jugadores", "jugador", "Lionel Scaloni", "futbol", "futbolista", "Messi", "selección", "famosos", "actor", "actriz", "romance", "novio", "novia", "farándula", "gran hermano", "teatro", "separación", "escándalo", "modelo", "cantante"], "limite": 30 }
+            { "id": "booking_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/booking_competencia.jpg", "img_url": "https://drive.google.com/file/d/1SD6Qf6FxN8lvIuwqiywS8hCThh5IGH4B/view", "rss": ["https://news.google.com/rss/search?q=AR%20Airbnb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Almundo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Turismocity%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tripadvisor%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Expedia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=%22Despegar%22%20OR%20Paula%20Cristi%20when%3A10d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Airbnb", "Turismocity", "Almundo", "Tripadvisor", "TripAdvisor", "Expedia", "Despegar"], "exclusiones": [], "limite": 20 },
+            { "id": "booking_tema_3", "nombre": "Turismo", "nombre_largo": "Turismo", "img_local": "banners/booking_turismo.jpg", "img_url": "https://drive.google.com/file/d/1PVMiBHJuTBdm7YQn6OF1c9F31gvyckZR/view", "rss": ["https://news.google.com/rss/search?q=ARG%20%22Turismo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ARG%20%22Vacaciones%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ARG%20%22viajes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["turismo", "viajes", "viajar", "vacaciones", "pasajes", "vuelos", "hoteles", "hospedaje"], "exclusiones": ["jugadores", "jugador", "Lionel Scaloni", "futbol", "futbolista", "Messi", "selección", "famosos", "actor", "actriz", "romance", "novio", "novia", "farándula", "gran hermano", "teatro", "separación", "escándalo", "modelo", "cantante"], "limite": 20 }
+        ]
+    },
+    "Mail Boxes": {
+        "color_primario": "#0000FF", "hoja_excel": "Mail Boxes", "temas_excluir": [], "banner_principal_local": "banners/mailboxes_principal.jpg", "banner_principal_url": "",
+        "secciones": [
+            { "id": "mailboxes_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/mailboxes_exclusivas.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=%22Mail%20Boxes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mail Boxes", "Mail Boxes Etc", "MBE"], "exclusiones": [], "limite": 20 },
+            { "id": "mailboxes_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mailboxes_competencia.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=Andreani%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Correo%20Argentino%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=OCA%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Andreani", "Correo Argentino", "OCA", "DHL", "FedEx", "UPS"], "exclusiones": [], "limite": 20 },
+            { "id": "mailboxes_tema_3", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mailboxes_interes.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=courier%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=log%C3%ADstica%20e-commerce%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["courier", "envíos", "logística", "e-commerce", "paquetería"], "exclusiones": [], "limite": 20 },
         ]
     }
 }
 
-IDS_SINTESIS = ["exclusivas", "mars_tema_1", "bms_tema_1", "arredo_tema_1", "arredo_tema_2", "amanco_tema_1", "booking_tema_1", "mars_competencia", "bms_tema_4", "arredo_tema_6", "amanco_tema_2", "booking_tema_2"]
+IDS_SINTESIS = ["exclusivas", "mars_tema_1", "mars_tema_2", "mars_tema_3", "bms_tema_1", "arredo_tema_1", "arredo_tema_2", "amanco_tema_1", "booking_tema_1", "mars_competencia", "bms_tema_4", "arredo_tema_6", "amanco_tema_2", "booking_tema_2", "mailboxes_tema_1", "mailboxes_tema_2"]  # v5.47
+IDS_EXCLUSIVAS = ["exclusivas", "bms_tema_1", "arredo_tema_1", "amanco_tema_1", "booking_tema_1", "mailboxes_tema_1"]
+IDS_COMPETENCIA = ["mars_competencia", "bms_tema_4", "arredo_tema_6", "amanco_tema_2", "booking_tema_2", "mailboxes_tema_2"]
 
 # ====================================================================
 # MOTOR DE SCRAPING Y EXTRACCIÓN DE METADATA (FUNCIONES AUXILIARES)
@@ -386,6 +417,11 @@ def formatear_fecha(texto_fecha):
         dt = email.utils.parsedate_to_datetime(texto_fecha)
         return dt.strftime("%d/%m/%Y")
     except: return ""
+
+def tipo_metricas(sec_id):  # v5.43: 'booking' (solo Ad Value), 'full' (Alcance/Tier/Ad Value) o 'none'
+    if sec_id == 'booking_tema_1': return 'booking'
+    if sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4', 'booking_tema_2', 'mailboxes_tema_2']: return 'full'
+    return 'none'
 
 def remover_acentos(texto): 
     return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
@@ -531,10 +567,20 @@ def extraer_oracion_clave(texto, palabras_clave, sec_id=""):
     patron = "|".join(r'\b' + re.escape(k) + r'\b' for k in sorted(palabras_clave, key=len, reverse=True)) if palabras_clave else ""
     
     for oracion in oraciones:
-        if 15 <= len(oracion.strip()) <= 2000 and contiene_palabra_clave(oracion, palabras_clave):
+        if len(oracion.strip()) >= 15 and contiene_palabra_clave(oracion, palabras_clave):
+            o = oracion.strip()
+            if len(o) > 2000:  # v5.40: oraciones larguísimas (listas de participantes): recorte alrededor de la keyword
+                m = re.search(patron, o, flags=re.IGNORECASE) if patron else None
+                if m:
+                    ini, fin = max(0, m.start() - 300), min(len(o), m.end() + 300)
+                    o = ("…" if ini else "") + o[ini:fin] + ("…" if fin < len(o) else "")
+                else:
+                    o = o[:2000]
             if patron:
-                return re.sub(f"({patron})", r"<strong>\1</strong>", oracion.strip(), flags=re.IGNORECASE)
-            return oracion.strip()
+                if str(sec_id) in ("booking_tema_1", "booking_tema_2"):  # v5.44: Booking: keywords en rojo estándar, sin negrita
+                    return re.sub(f"({patron})", r'<span style="color: #FF0000; font-weight: normal;">\1</span>', o, flags=re.IGNORECASE)
+                return re.sub(f"({patron})", r"<strong>\1</strong>", o, flags=re.IGNORECASE)
+            return o
     return ""
 
 def transformar_link_drive(url):
@@ -573,8 +619,95 @@ def obtener_fecha_metadata(page):
     except: pass
     return ""
 
+def _sin_titulo(cuerpo, titulo):  # v5.49: saca del cuerpo las líneas que son el título, para que la oración clave sea del texto de la nota y no el título
+    _c = lambda x: re.sub(r'[^a-z0-9]', '', remover_acentos(str(x).lower()))
+    t = _c(titulo)
+    if len(t) < 10: return cuerpo
+    return "\n".join(l for l in str(cuerpo).split("\n") if not (len(_c(l)) >= 10 and (_c(l) in t or (t in _c(l) and len(_c(l)) < len(t) + 40))))
+
+# ---------- v5.55: AUTO-ACTUALIZACIÓN DEL .EXE ----------
+# version.txt en GitHub: línea 1 = versión (ej. 2.1), línea 2 = URL de descarga directa del .exe nuevo (ej. link de GitHub Releases)
+def _vtuple(v):
+    try: return tuple(int(x) for x in re.findall(r'\d+', str(v)))
+    except Exception: return (0,)
+
+def consultar_version_remota():
+    try:
+        r_ = requests.get(URL_VERSION_GITHUB, timeout=6)
+        if r_.status_code != 200: return None, None
+        lineas = [l.strip() for l in r_.text.splitlines() if l.strip()]
+        return (lineas[0] if lineas else None), (lineas[1] if len(lineas) > 1 else None)
+    except Exception:
+        return None, None
+
+def descargar_y_preparar_update(url):
+    """Descarga el .exe nuevo junto al actual, lo valida y lanza un .bat que lo reemplaza (con rollback). Devuelve (ok, msg)."""
+    try:
+        if not getattr(sys, 'frozen', False): return False, "Solo se actualiza desde el .exe compilado."
+        exe = os.path.abspath(sys.executable)
+        nuevo = exe + ".new"
+        with requests.get(url, stream=True, timeout=30) as resp:
+            resp.raise_for_status()
+            with open(nuevo, 'wb') as f:
+                for chunk in resp.iter_content(1024 * 1024): f.write(chunk)
+        if os.path.getsize(nuevo) < 5 * 1024 * 1024:  # validación mínima: un .exe real pesa MBs
+            os.remove(nuevo); return False, "La descarga está incompleta o es inválida."
+        bat = exe + ".update.bat"
+        with open(bat, 'w', encoding='utf-8') as f:
+            f.write(f'''@echo off
+set n=0
+timeout /t 3 /nobreak >nul
+:retry
+set /a n+=1
+move /y "{exe}" "{exe}.bak" >nul 2>&1
+if exist "{exe}" (
+  if %n% GEQ 15 goto fail
+  timeout /t 2 /nobreak >nul
+  goto retry
+)
+move /y "{nuevo}" "{exe}" >nul
+if not exist "{exe}" move /y "{exe}.bak" "{exe}" >nul
+goto run
+:fail
+del "{nuevo}" >nul 2>&1
+:run
+start "" "{exe}"
+del "%~f0"
+''')
+        subprocess.Popen(['cmd', '/c', bat], creationflags=0x00000008 | 0x00000200, close_fds=True)
+        return True, "Actualizando..."
+    except Exception as e:
+        return False, f"Error al actualizar: {e}"
+
+def completar_bloque_pre(b, palabras_clave, sec_id=""):  # v5.52: nota excluida antes de leerse y aprobada a mano: la lee ahora como en la 1ª vez
+    try:
+        with sync_playwright() as p:
+            br = p.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = br.new_context(viewport={"width": 1920, "height": 1080}, user_agent="Mozilla/5.0")
+            pg = ctx.new_page()
+            pg.goto(b.get('link', ''), timeout=15000, wait_until="domcontentloaded")
+            pg.wait_for_timeout(1500)
+            if re.search(r'//(news|consent)\.google\.', pg.url or ''):
+                try: pg.wait_for_url(lambda u: not re.search(r'//(news|consent)\.google\.', u), timeout=6000)
+                except Exception: pass
+            pg.wait_for_timeout(1500)
+            b['link_destino'] = pg.url
+            try: pg.evaluate("document.querySelectorAll('aside, footer, nav, .sidebar, .widget, [class*=\"related\"], [class*=\"popular\"]').forEach(el => el.remove())")
+            except Exception: pass
+            b['bajada_real'] = obtener_resumen_metadata(pg)
+            b['oracion_clave'] = ""
+            for sel in ("(document.querySelector('article') || document.body).innerText", "document.body.innerText"):
+                try: cuerpo = pg.evaluate("() => " + sel)
+                except Exception: cuerpo = ""
+                b['oracion_clave'] = extraer_oracion_clave(_sin_titulo(cuerpo or "", b.get('titulo', '')), palabras_clave, sec_id)
+                if b['oracion_clave']: break
+            br.close()
+    except Exception:
+        pass
+    b['leida'] = True
+
 def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec_id="", resumen_rss=""):
-    secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
+    secciones_destacadas = ['exclusivas', 'mars_tema_1', 'mars_tema_2', 'mars_tema_3', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2', 'mailboxes_tema_1', 'mailboxes_tema_2']  # v5.47
     
     resumen_meta_limpio = limpiar_basura_periodistica(corregir_mojibake(resumen_meta)).replace("<em>", "").replace("</em>", "")
     titulo_limpio = limpiar_basura_periodistica(corregir_mojibake(titulo))
@@ -598,21 +731,27 @@ def construir_bloque_texto(resumen_meta, oracion, titulo, palabras_clave="", sec
     elif resumen_rss:
         r_rss = limpiar_basura_periodistica(corregir_mojibake(resumen_rss))
         o_rss = extraer_oracion_clave(re.sub(r'<[^>]+>', '', r_rss), palabras_clave, sec_id) if r_rss else ""
+        _rss_c = re.sub(r'[^a-z0-9]', '', remover_acentos(re.sub(r'<[^>]+>', '', r_rss).lower()))
+        _rss_es_titulo = bool(tit_compact) and tit_compact in _rss_c and len(_rss_c) < len(tit_compact) + 40  # v5.48: RSS de Google News = título + medio, no es bajada
+        _o_c = re.sub(r'[^a-z0-9]', '', remover_acentos(re.sub(r'<[^>]+>', '', o_rss or '').lower()))
+        if bool(tit_compact) and _o_c and (_o_c in tit_compact or (tit_compact in _o_c and len(_o_c) < len(tit_compact) + 40)):
+            o_rss = ""  # v5.51: la "oración" del RSS es el título (+medio): no es bajada
         if o_rss:
             texto_final = o_rss.strip()
-        elif r_rss and len(r_rss.strip()) > 15:
+        elif r_rss and len(r_rss.strip()) > 15 and not _rss_es_titulo:
             texto_final = re.sub(r'<[^>]+>', '', r_rss).strip()
 
     # 2. Lógica para sumar la oración en Competencia
-    es_competencia = "competencia" in str(sec_id).lower() or str(sec_id) == "bms_tema_4"
+    es_competencia = str(sec_id) in IDS_COMPETENCIA or str(sec_id) in IDS_EXCLUSIVAS  # v5.47: Exclusivas y Competencia de todos los clientes suman la oración con la keyword
     
     if es_competencia and oracion and not oracion.startswith("[Nota inaccesible"):
         oracion_limpia = re.sub(r'<[^>]+>', '', oracion).strip()
         texto_limpio = re.sub(r'<[^>]+>', '', texto_final).strip()
         
         # Comparamos para no duplicar si la oración resultó ser idéntica a la bajada
-        if oracion_limpia and oracion_limpia not in texto_limpio and texto_limpio not in oracion_limpia:
-            texto_final = f"{texto_final}<br><br>{oracion.strip()}"
+        # v5.49: si la keyword NO aparece en la bajada, se suma la oración con la keyword a continuación (sin salto de línea)
+        if texto_limpio and oracion_limpia and not contiene_palabra_clave(texto_limpio, palabras_clave) and oracion_limpia not in texto_limpio:
+            texto_final = f"{texto_final} {oracion.strip()}"
         elif not texto_final:
             texto_final = oracion.strip()
 
@@ -686,39 +825,40 @@ def buscar_metricas_medio(df_medios, url, medio_nombre):
         
     return alcance, tier, ad_value
 
-def sort_key_final(n, sec_id):
-    es_grafica = 0 if n['tipo_medio'] == 'Gráfica' else 1
-    medio_lower = str(n['medio']).lower()
-    ts_fecha = parse_fecha_sortable(n.get('fecha', ''))
-    
-    if sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4']:
-        redes = ['instagram', 'facebook', 'threads', 'x.com', 'twitter', 'tiktok', 'linkedin']
-        is_social = any(sm in medio_lower for sm in redes)
-        
-        tier_val = 99
-        try:
-            t_str = str(n['tier']).lower().strip()
-            if t_str not in ['?', 'nan', '', 'null', 'none']:
-                tier_val = int(float(t_str))
-        except: pass
-            
-        alcance_val = 0.0
-        try:
-            a_str = str(n['alcance']).lower().strip().replace('.', '').replace(',', '')
-            if a_str not in ['?', 'nan', '', 'null', 'none']:
-                alcance_val = float(a_str)
-        except: pass
-            
-        tiene_metricas = tier_val in [1, 2, 3]
+def _num_orden(v):
+    try: return float(re.sub(r'[^0-9]', '', str(v))) if re.search(r'\d', str(v)) else 0.0
+    except Exception: return 0.0
 
+def _rank_red(n):  # v5.53: Twitter/X=0, IG=1, FB=2, otras=3, None=no es red social
+    t = " ".join(str(n.get(k, '')) for k in ('medio', 'link', 'link_destino')).lower()
+    if re.search(r'twitter|(?<![a-z0-9])x\.com', t): return 0
+    if 'instagram' in t: return 1
+    if 'facebook' in t: return 2
+    if any(x in t for x in ('threads', 'tiktok', 'linkedin')): return 3
+    return None
+
+def sort_key_final(n, sec_id):
+    es_grafica = 0 if n.get('tipo_medio') == 'Gráfica' else 1
+    medio_lower = str(n.get('medio', '')).lower()
+    ts_fecha = parse_fecha_sortable(n.get('fecha', ''))
+    if sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4', 'booking_tema_2', 'mailboxes_tema_2']:
+        red = _rank_red(n)
+        tier_val = int(_num_orden(n.get('tier', ''))) if _num_orden(n.get('tier', '')) in (1, 2, 3) else 99
         if es_grafica == 0: cat = 0
-        elif tiene_metricas and not is_social: cat = 1
-        elif is_social: cat = 2
+        elif red is not None: cat = 2
+        elif tier_val in (1, 2, 3): cat = 1
         else: cat = 3
-            
-        return (cat, tier_val, -alcance_val, medio_lower, -ts_fecha)
-    else:
-        return (es_grafica, medio_lower, -ts_fecha)
+        # v5.53: Gráficas > Online T1/T2/T3 (Ad Value, Alcance, alfabético) > Redes T1/T2/T3 (X, IG, FB; Ad Value, Alcance, alfabético)
+        a_, b_ = (red, tier_val) if cat == 2 else (tier_val, 0)  # v5.54: redes = primero por red (X, IG, FB), luego tier
+        return (cat, a_, b_, -_num_orden(n.get('ad_value', '')), -_num_orden(n.get('alcance', '')), medio_lower, -ts_fecha)
+    return (es_grafica, 99, 0, 0, 0, medio_lower, -ts_fecha)
+
+def insertar_nota_ordenada(lista, nota, sec_id):  # v5.53: inserta la nota según las reglas de orden de la sección
+    k = sort_key_final(nota, sec_id)
+    for i, x in enumerate(lista):
+        if sort_key_final(x, sec_id) > k:
+            lista.insert(i, nota); return
+    lista.append(nota)
 
 def es_tier_1_o_2(tier_val):
     try:
@@ -1105,6 +1245,8 @@ class AppState:
         self.last_data_auditoria = None
         # --- NUEVO ---
         self.is_paused = False  
+        self.stop_req = False  # v5.50
+        self.btn_stop = None  # v5.50
         self.btn_procesar = None 
         self.btn_pausa = None    
         # -------------
@@ -1113,10 +1255,10 @@ class AppState:
     def init_secciones(self):
         config = CLIENTES_CONFIG[self.cliente]
         self.links_manuales = {sec['id']: "" for sec in config["secciones"] if not sec.get('es_separador')}
-        self.graficas = {sec['id']: [{"medio": "", "titulo": "", "fecha": datetime.datetime.now().strftime("%Y-%m-%d"), "link": "", "bajada": ""}] for sec in config["secciones"] if not sec.get('es_separador')}
+        self.graficas = {sec['id']: [{"medio": "", "titulo": "", "fecha": datetime.datetime.now().strftime("%Y-%m-%d"), "link": "", "bajada": "", "alcance": "", "tier": "", "ad_value": ""}] for sec in config["secciones"] if not sec.get('es_separador')}
         
     def add_grafica(self, sec_id):
-        self.graficas[sec_id].append({"medio": "", "titulo": "", "fecha": datetime.datetime.now().strftime("%Y-%m-%d"), "link": "", "bajada": ""})
+        self.graficas[sec_id].append({"medio": "", "titulo": "", "fecha": datetime.datetime.now().strftime("%Y-%m-%d"), "link": "", "bajada": "", "alcance": "", "tier": "", "ad_value": ""})
         
     def add_extra_search(self):
         self.extra_searches.append({"q": "", "sec": ""})
@@ -1193,7 +1335,18 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
     items = []
     evaluaciones_auditoria = []
     notas_pendientes_ia = []
-    secciones_destacadas = ['exclusivas', 'mars_tema_1', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2']
+    secciones_destacadas = ['exclusivas', 'mars_tema_1', 'mars_tema_2', 'mars_tema_3', 'bms_tema_1', 'arredo_tema_1', 'arredo_tema_2', 'amanco_tema_1', 'booking_tema_1', 'mars_competencia', 'bms_tema_4', 'arredo_tema_6', 'amanco_tema_2', 'booking_tema_2', 'mailboxes_tema_1', 'mailboxes_tema_2']  # v5.47
+
+    # v5.46: en estas secciones NO se excluye por nota ya incluida en otra sección (sí se sigue excluyendo la repetida dentro de la propia sección)
+    _nom_sec = remover_acentos(str(nombre_seccion).lower()).strip()
+    omitir_duplicados = _nom_sec in ("exclusivas", "competencia", "competencias") or (cliente_nombre == "Mars" and _nom_sec in ("corporativo", "pet nutrition", "snacking"))
+    # Foto de lo ya registrado al entrar: lo que esté ahí (de otras secciones) no cuenta como duplicado; lo que se sume dentro de esta sección sí
+    _base_links = set(links_sumados_global) if omitir_duplicados else set()
+    _base_urls = set(urls_resueltas_global) if omitir_duplicados else set()
+    _base_tits = set(titulos_resueltos_global) if omitir_duplicados else set()
+    _es_dup_link = lambda k: k in links_sumados_global and k not in _base_links
+    _es_dup_url = lambda k: k in urls_resueltas_global and k not in _base_urls
+    _es_dup_tit = lambda k: k in titulos_resueltos_global and k not in _base_tits
 
     requiere_ia = USAR_FILTRO_IA and (es_seccion_general(sec_id, nombre_seccion) or bool(contexto_ia))
     
@@ -1217,6 +1370,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         m_limpio = limpiar_nombre_medio(ng['medio'])
         fecha_format = datetime.datetime.strptime(ng['fecha'], "%Y-%m-%d").strftime("%d/%m/%Y") if ng.get('fecha') else datetime.datetime.now().strftime("%d/%m/%Y")
         alcance, tier, ad_value = buscar_metricas_medio(df_medios, ng['link'], m_limpio)
+        alcance, tier, ad_value = [str(ng.get(k_, '')).strip() or v_ for k_, v_ in (('alcance', alcance), ('tier', tier), ('ad_value', ad_value))]  # v5.43: valores cargados a mano pisan la búsqueda
 
         bloque_ng = {
             "medio": m_limpio, "tipo_medio": "Gráfica", "fecha": fecha_format,
@@ -1237,7 +1391,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                 })
             continue
 
-        if (link_norm and link_norm in links_sumados_global) or (u_clean in urls_resueltas_global):
+        if (link_norm and _es_dup_link(link_norm)) or _es_dup_url(u_clean):  # v5.46
             logger(f"    🔁 EXCLUIDA [Gráfica] por nota duplicada: {m_limpio[:20]} - {ng['titulo'][:30]}...")
             if True:
                 evaluaciones_auditoria.append({
@@ -1275,13 +1429,15 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         items.sort(key=_prio_item)  # sort estable: respeta el orden previo dentro de cada grupo
 
     for item_tuple in items:
+        if getattr(state, 'stop_req', False): break  # v5.50: entrega parcial
         # --- NUEVO: CHECK DE PAUSA (Congela y descuenta tiempo) ---
         if getattr(state, 'is_paused', False):
             inicio_pausa = time.time()
-            while getattr(state, 'is_paused', False):
+            while getattr(state, 'is_paused', False) and not getattr(state, 'stop_req', False):
                 time.sleep(0.5)
             # Sumamos los segundos que estuvo pausado para NO perjudicar el límite
             start_time_seccion += (time.time() - inicio_pausa)
+        if getattr(state, 'stop_req', False): break  # v5.50
         # ----------------------------------------------------------
 
         if time.time() - start_time_seccion > 120:
@@ -1326,9 +1482,10 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
 
         url_fuente = obtener_url_fuente_rss(item)
 
+        _al_pre, _ti_pre, _ad_pre = buscar_metricas_medio(df_medios, url_fuente or link_orig, medio)  # v5.52: métricas también para notas excluidas antes de leerse
         bloque_pre = {
-            "medio": limpiar_nombre_medio(medio), "tipo_medio": "Online", "fecha": fecha_rss,
-            "alcance": "?", "tier": "?", "ad_value": "?", "titulo": titulo, "link": link_orig,
+            "medio": limpiar_nombre_medio(medio), "tipo_medio": "Online", "fecha": fecha_rss, "leida": False,
+            "alcance": _al_pre, "tier": _ti_pre, "ad_value": _ad_pre, "titulo": titulo, "link": link_orig,
             "bajada_real": desc_rss, "oracion_clave": desc_rss, "resumen_rss": desc_rss, "origen": origen
         }
 
@@ -1345,7 +1502,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
 
         t_compact_pre = re.sub(r'[^a-z0-9]', '', remover_acentos(titulo.lower()))
         
-        if (link_norm and link_norm in links_sumados_global) or (t_compact_pre and t_compact_pre in titulos_resueltos_global and len(t_compact_pre) > 15):
+        if (link_norm and _es_dup_link(link_norm)) or (t_compact_pre and _es_dup_tit(t_compact_pre) and len(t_compact_pre) > 15):  # v5.46
             logger(f"    🔁 EXCLUIDA por nota duplicada (URL origen o Título): {medio[:20]} - {titulo[:30]}...")
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
             if True:
@@ -1423,7 +1580,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                     logger(f"    🔗 Destino: {link_destino}")
                 
             u_clean = url_limpia_para_duplicados(link_destino)
-            if u_clean in urls_resueltas_global:
+            if _es_dup_url(u_clean):  # v5.46
                 logger(f"    🔁 EXCLUIDA por url de destino duplicada: {medio[:20]} - {titulo[:30]}...")
                 _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
                 if True:
@@ -1454,6 +1611,24 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             
             bajada = obtener_resumen_metadata(page)
             fecha_web = obtener_fecha_metadata(page)
+            # v5.40: todas las notas (no manuales ni redes): la keyword se busca también en el CUERPO de la página (antes solo título + bajada)
+            if (origen != 'Manual' or str(sec_id) in IDS_EXCLUSIVAS or str(sec_id) in IDS_COMPETENCIA) and not oracion and not any(rs in link_destino.lower() for rs in ['instagram.com', 'facebook.com', 'x.com', 'twitter.com']):
+                try:
+                    _cuerpo = page.evaluate("() => (document.querySelector('article') || document.body).innerText")
+                    oracion = extraer_oracion_clave(_sin_titulo(_cuerpo or "", titulo), palabras_clave, sec_id)
+                    if not oracion:
+                        _cuerpo = page.evaluate("() => document.body.innerText")
+                        oracion = extraer_oracion_clave(_sin_titulo(_cuerpo or "", titulo), palabras_clave, sec_id)
+                except Exception:
+                    pass
+                if not oracion:  # v5.52: la página puede no haber terminado de cargar: espera, scrollea y reintenta una vez
+                    try:
+                        page.mouse.wheel(0, 4000); page.wait_for_timeout(2500)
+                        for _sel in ("(document.querySelector('article') || document.body).innerText", "document.body.innerText"):
+                            oracion = extraer_oracion_clave(_sin_titulo(page.evaluate("() => " + _sel) or "", titulo), palabras_clave, sec_id)
+                            if oracion: break
+                    except Exception:
+                        pass
             
             # --- NUEVA LÓGICA REDES SOCIALES ---
             domain_url = urlparse(link_destino).netloc.lower()
@@ -1762,7 +1937,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
     notas_manuales = sorted(notas_manuales, key=lambda n: sort_key_final(n, sec_id))
     notas_google = sorted(notas_google, key=lambda n: sort_key_final(n, sec_id))
 
-    noticias_finales = notas_manuales + notas_google
+    noticias_finales = sorted(notas_manuales + notas_google, key=lambda n: sort_key_final(n, sec_id))  # v5.53: un solo orden
 
     for noti in noticias_finales:
         # 1. Armamos el bloque de texto normal por defecto
@@ -1789,7 +1964,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         
         if sec_id == 'booking_tema_1':
             info_metricas = f" <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>Ad. Value: $ {noti['ad_value']}</strong> -"
-        elif sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4']:
+        elif sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4', 'booking_tema_2', 'mailboxes_tema_2']:
             info_metricas = f" <span style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>(Alcance: {noti['alcance']} Tier: {noti['tier']})</span> <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>Ad. Value: $ {noti['ad_value']}</strong> -"
         else:
             info_metricas = " -"
@@ -1906,14 +2081,20 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
                         tit = it.title.text if it.title else ""
                         desc = it.description.text if it.description else ""
                         texto_combo = f"{tit} {desc}"
+                        _ce = it.find('content:encoded') or it.find('encoded')
+                        _cuerpo_feed = BeautifulSoup(_ce.text, "html.parser").get_text(" ") if _ce is not None and _ce.text else ""
                         
                         link_it = it.link.text if hasattr(it, 'link') and it.link and it.link.text else url_feed
                         source_it = it.source.text if hasattr(it, 'source') and it.source and it.source.text else urlparse(link_it).netloc.replace("www.", "").split('.')[0]
                         sitio_origen = limpiar_nombre_medio(source_it)
 
-                        for sec in estructura:
-                            if sec.get('es_separador', False): continue
-                            if contiene_palabra_clave(texto_combo, sec['keywords']) and not contiene_exclusion(texto_combo, excl_por_seccion.get(sec['id'], [])):
+                        # v5.38: Exclusivas se evalúa PRIMERO y con sus exclusiones propias (no la unión del cliente): cualquier mención va ahí
+                        _es_excl = lambda s_: remover_acentos(str(s_.get('nombre', '')).lower()).strip() == 'exclusivas'
+                        for sec in sorted([x for x in estructura if not x.get('es_separador', False)], key=lambda x: 0 if _es_excl(x) else 1):
+                            _excl_sec = sec.get('exclusiones', []) if _es_excl(sec) else excl_por_seccion.get(sec['id'], [])
+                            # v5.39: la mención puede estar solo en el cuerpo del feed (content:encoded)
+                            _texto_kw = f"{texto_combo} {_cuerpo_feed}"  # v5.39: todas las secciones buscan también en el cuerpo del feed
+                            if contiene_palabra_clave(_texto_kw, sec['keywords']) and not contiene_exclusion(texto_combo, _excl_sec):
                                 items_rss_por_seccion[sec['id']].append((it, 'Feed Excel', feed_id_excel))
                                 logger(f"  🔀 Feed Excel [{sitio_origen}]: Nota '{tit[:30]}...' redirigida a 📁 {sec['nombre']}")
                                 break
@@ -1928,8 +2109,11 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
         
         for sec in estructura:
             # --- NUEVO: CHECK DE PAUSA ENTRE SECCIONES ---
-            while getattr(state, 'is_paused', False):
+            while getattr(state, 'is_paused', False) and not getattr(state, 'stop_req', False):
                 time.sleep(0.5)
+            if getattr(state, 'stop_req', False):
+                logger("🛑 Entrega parcial solicitada: se omiten las secciones restantes.")  # v5.50
+                break
             # ---------------------------------------------
             
             logger(f"\n🔎 ANALIZANDO SECCIÓN: {sec['nombre_largo']}")
@@ -2013,8 +2197,8 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
                 "img": img_url,
                 "incluir_en_sintesis": sec['id'] in IDS_SINTESIS,
                 "resumen_ia": "",
-                "es_separador": False,
-                "notas": [{"html_bloque": n.get('html_bloque', '')} for n in notas_seccion]
+                "es_separador": False, "metricas": tipo_metricas(sec['id']),
+                "notas": [{"html_bloque": n.get('html_bloque', ''), "alcance": n.get('alcance', '?'), "tier": n.get('tier', '?'), "ad_value": n.get('ad_value', '?'), "medio": n.get('medio', ''), "tipo_medio": n.get('tipo_medio', ''), "fecha": n.get('fecha', ''), "link": n.get('link', ''), "link_destino": n.get('link_destino', '')} for n in notas_seccion]
             })
             
             data_auditoria.append({
@@ -2524,7 +2708,7 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 
             let textos_notas = sec.notas.map(n => {
                 let tempDiv = document.createElement('div');
-                tempDiv.innerHTML = n.html_bloque;
+                tempDiv.innerHTML = n.html_bloque.split(/<br\s*\/?>\s*<br\s*\/?>/i)[0];  // v5.42: igual que Exclusivas: solo la bajada, sin la oración extra de Competencia
                 let enlace = tempDiv.querySelector('a');
                 if (enlace) enlace.remove();
                 let textContent = tempDiv.textContent || tempDiv.innerText || "";
@@ -2868,10 +3052,55 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             }
         }
 
+        function claveOrden(n, tm) {  // v5.53: misma regla que sort_key_final (Python)
+            const med = String(n.medio || '').toLowerCase();
+            const mf = String(n.fecha || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+            const ts = mf ? new Date(+mf[3], +mf[2] - 1, +mf[1]).getTime() : 0;
+            const graf = n.tipo_medio === 'Gráfica' ? 0 : 1;
+            if (tm === 'none') return [graf, 99, 0, 0, 0, med, -ts];
+            const num = v => { const x = parseFloat(String(v == null ? '' : v).replace(/[^0-9]/g, '')); return isNaN(x) ? 0 : x; };
+            const t = (med + ' ' + (n.link || '') + ' ' + (n.link_destino || '')).toLowerCase();
+            let red = null;
+            if (/twitter|(^|[^a-z0-9])x\.com/.test(t)) red = 0;
+            else if (t.includes('instagram')) red = 1;
+            else if (t.includes('facebook')) red = 2;
+            else if (/threads|tiktok|linkedin/.test(t)) red = 3;
+            const tv = num(n.tier); const tier = [1, 2, 3].includes(tv) ? tv : 99;
+            const cat = graf === 0 ? 0 : (red !== null ? 2 : ([1, 2, 3].includes(tier) ? 1 : 3));
+            const a_ = cat === 2 ? red : tier, b_ = cat === 2 ? tier : 0;
+            return [cat, a_, b_, -num(n.ad_value), -num(n.alcance), med, -ts];
+        }
+        function insertarOrdenada(secIdx, nota) {
+            const tm = estado[secIdx].metricas || 'none';
+            const k = claveOrden(nota, tm), arr = estado[secIdx].notas;
+            let pos = arr.length;
+            for (let i = 0; i < arr.length && pos === arr.length; i++) {
+                const c = claveOrden(arr[i], tm);
+                for (let j = 0; j < k.length; j++) {
+                    if (c[j] === k[j]) continue;
+                    if (c[j] > k[j]) pos = i;
+                    break;
+                }
+            }
+            arr.splice(pos, 0, nota);
+        }
+
         function moverASeccion(s, n, targetSec) {
             const target = parseInt(targetSec);
             const nota = estado[s].notas.splice(n, 1)[0];
-            estado[target].notas.push(nota);
+            const tm = estado[target].metricas || 'none';
+            if (nota.html_bloque && nota.alcance !== undefined && (estado[s].metricas || 'none') !== tm) {
+                // v5.43: al cambiar a una sección con/sin métricas, se recompone ese tramo del encabezado de la nota
+                nota.html_bloque = nota.html_bloque.replace(/(<strong style="color: ([^;"]+);[^>]*>\d{2}\/\d{2}\/\d{4}<\/strong>)([\s\S]*?)( <a href=)/, (m, g1, col, old, g4) => {
+                    const st = `style='color: ${col}; font-size: 14px; font-family: Tahoma, sans-serif;'`;
+                    const adv = `<strong ${st}>Ad. Value: $ ${nota.ad_value}</strong> -`;
+                    let info = ' -';
+                    if (tm === 'booking') info = ' ' + adv;
+                    else if (tm === 'full') info = ` <span ${st}>(Alcance: ${nota.alcance} Tier: ${nota.tier})</span> ` + adv;
+                    return g1 + info + g4;
+                });
+            }
+            insertarOrdenada(target, nota);
             render();
             guardarBorrador();
         }
@@ -3047,6 +3276,23 @@ async def index():
             app.storage.tab['authenticated'] = False
             ui.navigate.reload()
             
+        async def chequear_actualizacion():  # v5.55
+            v_rem, url_exe = await run.io_bound(consultar_version_remota)
+            if not v_rem or _vtuple(v_rem) <= _vtuple(APP_VERSION): return
+            with ui.dialog() as dlg, ui.card():
+                ui.label(f'🆕 Hay una versión nueva: v{v_rem} (tenés v{APP_VERSION})').classes('font-bold')
+                msg = ui.label('Se descarga y se reinicia el programa. No cierres nada hasta que se reabra.' if url_exe else 'Pedí el .exe nuevo al administrador.').classes('text-sm')
+                async def hacer():
+                    msg.set_text('⏳ Descargando...')
+                    ok, m = await run.io_bound(descargar_y_preparar_update, url_exe)
+                    msg.set_text(m)
+                    if ok:
+                        await asyncio.sleep(1); app.shutdown(); os._exit(0)
+                with ui.row():
+                    if url_exe: ui.button('Actualizar ahora', on_click=hacer)
+                    ui.button('Más tarde', on_click=dlg.close).props('flat')
+            dlg.open()
+        ui.timer(2.0, chequear_actualizacion, once=True)
         with ui.row().classes('items-center gap-4'):
             ui.label(f'v{APP_VERSION}').classes('text-slate-300 italic text-sm font-bold bg-slate-800 px-2 rounded')
             ui.button('🚪 Cerrar Sesión', on_click=logout).props('flat text-color=white').classes('font-bold border border-slate-600 rounded px-3 ml-2')
@@ -3113,14 +3359,14 @@ async def index():
             scroll_container = ui.scroll_area().classes('w-full h-[550px] pr-2').props('id=review-scroll-area')
 
             with scroll_container:
+                est_plegado = {}  # v5.41: estado plegado/desplegado (persiste entre refrescos)
                 @ui.refreshable
                 def render_lista_revision():
                     for sec_idx, sec in enumerate(data_auditoria):
                         sec_id = sec['id']
                         sec_editor = next((s for s in data_editor if s['id'] == sec_id), None)
                         
-                        with ui.card().classes('w-full mb-4 p-4 border border-slate-200 bg-white rounded-xl shadow-sm'):
-                            ui.label(f"📁 {sec['nombre']}").classes('font-bold text-base text-slate-800 mb-2')
+                        with ui.expansion(f"📁 {sec['nombre']} ({len(sec.get('evaluaciones', []))})", value=est_plegado.get(f'sec|{sec_id}', True), on_value_change=lambda e, k=f'sec|{sec_id}': est_plegado.__setitem__(k, e.value)).classes('w-full mb-4 p-2 border border-slate-200 bg-white rounded-xl shadow-sm').props('header-class="font-bold text-base text-slate-800"'):
                             
                             evals = sec.get('evaluaciones', [])
                             if not evals:
@@ -3138,114 +3384,121 @@ async def index():
                             )
 
                             with ui.column().classes('w-full gap-2'):
+                                grupos = {}
+                                for g in dict.fromkeys(e['estado'] for e in evals_ordenadas):
+                                    cnt = sum(1 for e in evals_ordenadas if e['estado'] == g)
+                                    tit_g = f'✅ Aprobadas ({cnt})' if g == 'SUMADA' else f"🚫 Excluidas · {g.replace('EXCLUIDA_', '').replace('_', ' ')} ({cnt})"
+                                    k_g = f'{sec_id}|{g}'
+                                    with ui.expansion(tit_g, value=est_plegado.get(k_g, g == 'SUMADA'), on_value_change=lambda e, k=k_g: est_plegado.__setitem__(k, e.value)).classes('w-full border border-slate-200 rounded-lg bg-slate-50').props('dense header-class="font-bold text-sm"'):
+                                        grupos[g] = ui.column().classes('w-full gap-2 p-2')
                                 for ev_idx, ev in enumerate(evals_ordenadas):
-                                    es_sumada = ev['estado'] == 'SUMADA'
-                                    bg_color = 'bg-emerald-50 border-emerald-200' if es_sumada else 'bg-rose-50 border-rose-200'
+                                    with grupos[ev['estado']]:
+                                        es_sumada = ev['estado'] == 'SUMADA'
+                                        bg_color = 'bg-emerald-50 border-emerald-200' if es_sumada else 'bg-rose-50 border-rose-200'
                                     
-                                    with ui.row().classes(f'w-full items-center justify-between p-3 rounded-lg border {bg_color} text-xs'):
-                                        with ui.column().classes('w-[72%] gap-1'):
-                                            with ui.row().classes('items-center gap-2 flex-wrap'):
-                                                ui.label(ev['medio']).classes('font-bold text-slate-800 text-sm')
+                                        with ui.row().classes(f'w-full items-center justify-between p-3 rounded-lg border {bg_color} text-xs'):
+                                            with ui.column().classes('w-[72%] gap-1'):
+                                                with ui.row().classes('items-center gap-2 flex-wrap'):
+                                                    ui.label(ev['medio']).classes('font-bold text-slate-800 text-sm')
                                                 
-                                                es_manual = ev.get('origen_fuente') in ['Manual', 'Gráfica', 'grafica', 'manual'] or 'manual' in str(ev.get('motivo','')).lower()
+                                                    es_manual = ev.get('origen_fuente') in ['Manual', 'Gráfica', 'grafica', 'manual'] or 'manual' in str(ev.get('motivo','')).lower()
 
-                                                if es_sumada:
-                                                    if es_manual:
-                                                        ui.chip('MANUAL', color='emerald-2', text_color='emerald-9').classes('text-[10px] font-bold py-0 h-5')
-                                                elif ev.get('es_ia'):
-                                                    ui.chip('IA', color='purple-2', text_color='purple-9').classes('text-[10px] font-bold py-0 h-5')
-                                                    ui.label(f"Motivo: {ev['motivo']}").classes('text-xs text-purple-900 font-bold italic bg-purple-100/80 px-2 py-0.5 rounded')
-                                                else:
-                                                    est_clean = str(ev['estado']).replace('EXCLUIDA_', '').replace('_', ' ')
-                                                    ui.chip(est_clean, color='rose-2', text_color='rose-9').classes('text-[10px] font-bold py-0 h-5')
-                                                    ui.label(f"Motivo: {ev['motivo']}").classes('text-xs text-rose-900 font-bold italic bg-rose-100/80 px-2 py-0.5 rounded')
+                                                    if es_sumada:
+                                                        if es_manual:
+                                                            ui.chip('MANUAL', color='emerald-2', text_color='emerald-9').classes('text-[10px] font-bold py-0 h-5')
+                                                    elif ev.get('es_ia'):
+                                                        ui.chip('IA', color='purple-2', text_color='purple-9').classes('text-[10px] font-bold py-0 h-5')
+                                                        ui.label(f"Motivo: {ev['motivo']}").classes('text-xs text-purple-900 font-bold italic bg-purple-100/80 px-2 py-0.5 rounded')
+                                                    else:
+                                                        est_clean = str(ev['estado']).replace('EXCLUIDA_', '').replace('_', ' ')
+                                                        ui.chip(est_clean, color='rose-2', text_color='rose-9').classes('text-[10px] font-bold py-0 h-5')
+                                                        ui.label(f"Motivo: {ev['motivo']}").classes('text-xs text-rose-900 font-bold italic bg-rose-100/80 px-2 py-0.5 rounded')
                                             
-                                            ui.html(f'<a href="{ev["link"]}" target="_blank" rel="noopener noreferrer" class="text-sky-600 font-semibold underline text-xs">{ev["titulo"]}</a>')
+                                                ui.html(f'<a href="{ev["link"]}" target="_blank" rel="noopener noreferrer" class="text-sky-600 font-semibold underline text-xs">{ev["titulo"]}</a>')
                                             
-                                            if not es_sumada and ev.get('origen_fuente'):
-                                                ui.label(f"Fuente: {ev.get('origen_fuente')}").classes('text-slate-500 italic text-[11px] font-normal mt-0.5')
+                                                if not es_sumada and ev.get('origen_fuente'):
+                                                    ui.label(f"Fuente: {ev.get('origen_fuente')}").classes('text-slate-500 italic text-[11px] font-normal mt-0.5')
 
-                                        async def toggle_nota(ev_ref=ev, s_edit=sec_editor, sec_ref=sec):
-                                            scroll_pos = 0
-                                            try:
-                                                scroll_pos = await ui.run_javascript('''
-                                                    (function() {
-                                                        let el = document.querySelector('#review-scroll-area .q-scrollarea__container');
-                                                        return el ? el.scrollTop : 0;
-                                                    })()
-                                                ''')
-                                            except Exception:
+                                            async def toggle_nota(ev_ref=ev, s_edit=sec_editor, sec_ref=sec):
                                                 scroll_pos = 0
-
-                                            if ev_ref['estado'] == 'SUMADA':
-                                                ev_ref['estado'] = 'EXCLUIDA_MANUAL'
-                                                ev_ref['motivo'] = 'Quitada manualmente por el usuario en revisión'
-                                            else:
-                                                ev_ref['estado'] = 'SUMADA'
-                                                ev_ref['motivo'] = 'Sumada manualmente en revisión'
-
-                                            sumadas = [e for e in sec_ref['evaluaciones'] if e['estado'] == 'SUMADA']
-                                            excluidas = [e for e in sec_ref['evaluaciones'] if e['estado'] != 'SUMADA']
-
-                                            sumadas.sort(key=lambda e: (
-                                                0 if e.get('bloque_data', {}).get('tipo_medio') == 'Gráfica' else 1,
-                                                remover_acentos(str(e.get('medio', '')).lower()),
-                                                -parse_fecha_sortable(str(e.get('bloque_data', {}).get('fecha', '')))
-                                            ))
-                                            excluidas.sort(key=lambda e: (str(e.get('estado', '')), remover_acentos(str(e.get('medio', '')).lower()), remover_acentos(str(e.get('titulo', '')).lower())))
-
-                                            sec_ref['evaluaciones'] = sumadas + excluidas
-
-                                            if s_edit:
-                                                s_edit['notas'] = []
-                                                cfg = CLIENTES_CONFIG[state.cliente]
-                                                sec_cfg_rev = next((sc for sc in cfg['secciones'] if sc['id'] == s_edit['id']), None)
-                                                kws_sec_rev = sec_cfg_rev.get('keywords', []) if sec_cfg_rev else []
-                                                for e_sum in sumadas:
-                                                    b = e_sum.get('bloque_data')
-                                                    if b:
-                                                        if 'html_bloque' in b and b['html_bloque']:
-                                                            s_edit['notas'].append({"html_bloque": b['html_bloque']})
-                                                        else:
-                                                            bloque_texto = construir_bloque_texto(b.get('bajada_real', ''), b.get('oracion_clave', ''), b.get('titulo', ''), kws_sec_rev, s_edit['id'], b.get('resumen_rss', ''))
-                                                            
-                                                            etiqueta_tipo = b.get('tipo_medio', 'Online')
-                                                            if etiqueta_tipo == "Online":
-                                                                medio_eval = str(b.get('medio', '')).lower()
-                                                                link_eval = str(b.get('link', '')).lower()
-                                                                if "instagram" in medio_eval or "instagram.com" in link_eval:
-                                                                    etiqueta_tipo = "IG"
-                                                                elif "facebook" in medio_eval or "facebook.com" in link_eval:
-                                                                    etiqueta_tipo = "FB"
-                                                                elif "twitter" in medio_eval or "x.com" in link_eval or "twitter.com" in link_eval:
-                                                                    etiqueta_tipo = "X"
-
-                                                            tipo_html = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>({etiqueta_tipo})</strong> " if b.get('tipo_medio') != "Gráfica" else " "
-                                                            info_metricas = " -"
-                                                            if s_edit['id'] == 'booking_tema_1':
-                                                                info_metricas = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
-                                                            elif s_edit['id'] in IDS_SINTESIS and s_edit['id'] not in ['mars_competencia', 'bms_tema_4']:
-                                                                info_metricas = f" <span style='color: {cfg['color_primario']}; font-size: 14px;'>(Alcance: {b.get('alcance', '?')} Tier: {b.get('tier', '?')})</span> <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
-                                                            
-                                                            html_indiv = f'''<p style="margin-top: 0; margin-bottom: 4px; color: #000000;"><strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('medio', '')}</strong>{tipo_html}<strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('fecha', '')}</strong>{info_metricas} <a href="{b.get('link', '#')}" target="_blank" rel="noopener noreferrer" style="color: {cfg['color_primario']}; text-decoration: none; font-size: 14px; font-weight: normal;">{b.get('titulo', '')}</a></p>{bloque_texto}'''
-                                                            s_edit['notas'].append({"html_bloque": html_indiv})
-
-                                            render_lista_revision.refresh()
-
-                                            if scroll_pos:
                                                 try:
-                                                    await ui.run_javascript(f'''
-                                                        (function() {{
+                                                    scroll_pos = await ui.run_javascript('''
+                                                        (function() {
                                                             let el = document.querySelector('#review-scroll-area .q-scrollarea__container');
-                                                            if (el) el.scrollTop = {scroll_pos};
-                                                        }})()
+                                                            return el ? el.scrollTop : 0;
+                                                        })()
                                                     ''')
-                                                except Exception: pass
+                                                except Exception:
+                                                    scroll_pos = 0
 
-                                        if es_sumada:
-                                            ui.button('❌ Quitar', on_click=toggle_nota).classes('bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm')
-                                        else:
-                                            ui.button('➕ Incluir en Reporte', on_click=toggle_nota).classes('bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm')
+                                                if ev_ref['estado'] == 'SUMADA':
+                                                    ev_ref['estado'] = 'EXCLUIDA_MANUAL'
+                                                    ev_ref['motivo'] = 'Quitada manualmente por el usuario en revisión'
+                                                else:
+                                                    ev_ref['estado'] = 'SUMADA'
+                                                    ev_ref['motivo'] = 'Sumada manualmente en revisión'
+
+                                                sumadas = [e for e in sec_ref['evaluaciones'] if e['estado'] == 'SUMADA']
+                                                excluidas = [e for e in sec_ref['evaluaciones'] if e['estado'] != 'SUMADA']
+
+                                                sumadas.sort(key=lambda e: sort_key_final(e.get('bloque_data') or {'medio': e.get('medio', '')}, s_edit['id']))  # v5.53
+                                                excluidas.sort(key=lambda e: (str(e.get('estado', '')), remover_acentos(str(e.get('medio', '')).lower()), remover_acentos(str(e.get('titulo', '')).lower())))
+
+                                                sec_ref['evaluaciones'] = sumadas + excluidas
+
+                                                if s_edit:
+                                                    s_edit['notas'] = []
+                                                    cfg = CLIENTES_CONFIG[state.cliente]
+                                                    sec_cfg_rev = next((sc for sc in cfg['secciones'] if sc['id'] == s_edit['id']), None)
+                                                    kws_sec_rev = sec_cfg_rev.get('keywords', []) if sec_cfg_rev else []
+                                                    for e_sum in sumadas:
+                                                        b = e_sum.get('bloque_data')
+                                                        if b:
+                                                            if 'html_bloque' in b and b['html_bloque']:
+                                                                insertar_nota_ordenada(s_edit['notas'], {"html_bloque": b['html_bloque'], "alcance": b.get('alcance', '?'), "tier": b.get('tier', '?'), "ad_value": b.get('ad_value', '?'), "medio": b.get('medio', ''), "tipo_medio": b.get('tipo_medio', ''), "fecha": b.get('fecha', ''), "link": b.get('link', ''), "link_destino": b.get('link_destino', '')}, s_edit['id'])
+                                                            else:
+                                                                if b.get('leida') is False:  # v5.52
+                                                                    if state.status_chip: ui.notify('Leyendo la nota para completar el texto...')
+                                                                    await run.io_bound(completar_bloque_pre, b, kws_sec_rev, s_edit['id'])
+                                                                bloque_texto = construir_bloque_texto(b.get('bajada_real', ''), b.get('oracion_clave', ''), b.get('titulo', ''), kws_sec_rev, s_edit['id'], b.get('resumen_rss', ''))
+                                                            
+                                                                etiqueta_tipo = b.get('tipo_medio', 'Online')
+                                                                if etiqueta_tipo == "Online":
+                                                                    medio_eval = str(b.get('medio', '')).lower()
+                                                                    link_eval = str(b.get('link', '')).lower()
+                                                                    if "instagram" in medio_eval or "instagram.com" in link_eval:
+                                                                        etiqueta_tipo = "IG"
+                                                                    elif "facebook" in medio_eval or "facebook.com" in link_eval:
+                                                                        etiqueta_tipo = "FB"
+                                                                    elif "twitter" in medio_eval or "x.com" in link_eval or "twitter.com" in link_eval:
+                                                                        etiqueta_tipo = "X"
+
+                                                                tipo_html = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>({etiqueta_tipo})</strong> " if b.get('tipo_medio') != "Gráfica" else " "
+                                                                info_metricas = " -"
+                                                                if s_edit['id'] == 'booking_tema_1':
+                                                                    info_metricas = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
+                                                                elif s_edit['id'] in IDS_SINTESIS and s_edit['id'] not in ['mars_competencia', 'bms_tema_4', 'booking_tema_2', 'mailboxes_tema_2']:
+                                                                    info_metricas = f" <span style='color: {cfg['color_primario']}; font-size: 14px;'>(Alcance: {b.get('alcance', '?')} Tier: {b.get('tier', '?')})</span> <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
+                                                            
+                                                                html_indiv = f'''<p style="margin-top: 0; margin-bottom: 4px; color: #000000;"><strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('medio', '')}</strong>{tipo_html}<strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('fecha', '')}</strong>{info_metricas} <a href="{b.get('link', '#')}" target="_blank" rel="noopener noreferrer" style="color: {cfg['color_primario']}; text-decoration: none; font-size: 14px; font-weight: normal;">{b.get('titulo', '')}</a></p>{bloque_texto}'''
+                                                                insertar_nota_ordenada(s_edit['notas'], {"html_bloque": html_indiv, "alcance": b.get('alcance', '?'), "tier": b.get('tier', '?'), "ad_value": b.get('ad_value', '?'), "medio": b.get('medio', ''), "tipo_medio": b.get('tipo_medio', ''), "fecha": b.get('fecha', ''), "link": b.get('link', ''), "link_destino": b.get('link_destino', '')}, s_edit['id'])
+
+                                                render_lista_revision.refresh()
+
+                                                if scroll_pos:
+                                                    try:
+                                                        await ui.run_javascript(f'''
+                                                            (function() {{
+                                                                let el = document.querySelector('#review-scroll-area .q-scrollarea__container');
+                                                                if (el) el.scrollTop = {scroll_pos};
+                                                            }})()
+                                                        ''')
+                                                    except Exception: pass
+
+                                            if es_sumada:
+                                                ui.button('❌ Quitar', on_click=toggle_nota).classes('bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm')
+                                            else:
+                                                ui.button('➕ Incluir en Reporte', on_click=toggle_nota).classes('bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm')
 
             render_lista_revision()
 
@@ -3278,6 +3531,7 @@ async def index():
         state.timer_label.classes(remove='hidden')
         state.status_chip.classes(remove='hidden')
         state.status_chip.set_text("📍 Iniciando motor de búsqueda...")
+        state.stop_req = False  # v5.50
         state.log_box.classes(remove='hidden')
         state.log_container.clear()
         state.log_container.push("🚀 Iniciando motor de procesamiento...")
@@ -3289,6 +3543,7 @@ async def index():
             state.btn_pausa.set_text('⏸️ PAUSAR')
             state.btn_pausa.classes(replace='py-4 text-lg font-bold shadow-lg rounded-xl bg-amber-500 text-white w-1/3 transition-all')
             state.btn_pausa.classes(remove='hidden')
+        if getattr(state, 'btn_stop', None): state.btn_stop.classes(remove='hidden')  # v5.50
             
         registrar_actividad(app.storage.tab.get('username', 'usuario'), "Generó Reporte", f"Cliente: {state.cliente} | Manuales: {solo_manuales} | Banners: {solo_banners}")
         
@@ -3322,15 +3577,21 @@ async def index():
         log_queue = queue.Queue()
         def safe_logger(msg): log_queue.put(msg)
         
+        cont_sec = {"nombre": "", "sumadas": 0}  # v5.45: notas sumadas en la sección en curso
         def flush_logs():
             while not log_queue.empty():
                 msg = log_queue.get()
                 if state.log_container:
                     state.log_container.push(msg)
                 if "🔎 ANALIZANDO SECCIÓN:" in msg:
-                    nombre_sec = msg.replace("🔎 ANALIZANDO SECCIÓN:", "").strip()
-                    if state.status_chip:
-                        state.status_chip.set_text(f"📍 Sección actual: {nombre_sec}")
+                    cont_sec["nombre"] = msg.replace("🔎 ANALIZANDO SECCIÓN:", "").strip()
+                    cont_sec["sumadas"] = 0
+                elif "✓ SUMADA" in str(msg) and cont_sec["nombre"]:
+                    cont_sec["sumadas"] += 1
+                else:
+                    continue
+                if state.status_chip:
+                    state.status_chip.set_text(f"📍 Sección actual: {cont_sec['nombre']} · ✅ {cont_sec['sumadas']} sumadas")
 
         ui_timer = ui.timer(0.3, flush_logs)
 
@@ -3366,6 +3627,7 @@ async def index():
             # --- NUEVO: Resetear los botones al terminar con éxito ---
             if getattr(state, 'btn_procesar', None): state.btn_procesar.enable()
             if getattr(state, 'btn_pausa', None): state.btn_pausa.classes(add='hidden')
+            if getattr(state, 'btn_stop', None): state.btn_stop.classes(add='hidden')  # v5.50
             
         except Exception as e:
             flush_logs()
@@ -3380,6 +3642,7 @@ async def index():
             # --- NUEVO: Resetear los botones si falla por error ---
             if getattr(state, 'btn_procesar', None): state.btn_procesar.enable()
             if getattr(state, 'btn_pausa', None): state.btn_pausa.classes(add='hidden')
+            if getattr(state, 'btn_stop', None): state.btn_stop.classes(add='hidden')  # v5.50
 
     @ui.refreshable
     def main_content():
@@ -3431,6 +3694,12 @@ async def index():
                                 with ui.column().classes('w-[48%]'):
                                     ui.input('Link de Drive').bind_value(graf, 'link').classes('w-full bg-white')
                                     ui.textarea('Texto o Bajada').bind_value(graf, 'bajada').classes('w-full bg-white h-24')
+                            if tipo_metricas(sec['id']) != 'none':  # v5.43: métricas manuales (opcionales)
+                                with ui.row().classes('w-full gap-4'):
+                                    if tipo_metricas(sec['id']) == 'full':
+                                        ui.input('Alcance (opcional)').bind_value(graf, 'alcance').classes('w-[30%] bg-white')
+                                        ui.input('Tier (opcional)').bind_value(graf, 'tier').classes('w-[30%] bg-white')
+                                    ui.input('Ad Value (opcional)').bind_value(graf, 'ad_value').classes('w-[30%] bg-white')
 
                     ui.button("➕ Sumar otra nota gráfica", on_click=lambda sid=sec['id']: (state.add_grafica(sid), main_content.refresh())).props(f'outline text-color={color.strip("#")}').classes('mt-2')
             
@@ -3444,6 +3713,12 @@ async def index():
             state.log_container = MonitorConsola(state.log_box)
 
             # --- NUEVO: Botones de control y lógica de Pausa ---
+            def entregar_parcial():  # v5.50: corta la búsqueda y entrega lo recolectado hasta ahora
+                state.stop_req = True
+                state.is_paused = False
+                if state.status_chip: state.status_chip.set_text("🛑 Cerrando y entregando lo recolectado...")
+                if state.log_container: state.log_container.push("🛑 <b>[ENTREGA PARCIAL]</b> - Se termina la nota en curso y se arma el reporte con lo que hay.")
+
             def toggle_pausa():
                 state.is_paused = not getattr(state, 'is_paused', False)
                 if state.is_paused:
@@ -3460,6 +3735,7 @@ async def index():
             with ui.row().classes('w-full gap-2 mt-4'):
                 state.btn_procesar = ui.button('🚀 PROCESAR REPORTE', on_click=lambda: procesar_reporte()).classes('flex-grow py-4 text-lg font-bold shadow-lg rounded-xl transition-all').style(f'background-color: {color}; color: white;')
                 state.btn_pausa = ui.button('⏸️ PAUSAR', on_click=toggle_pausa).classes('py-4 text-lg font-bold shadow-lg rounded-xl bg-amber-500 text-white w-1/3 hidden transition-all')
+                state.btn_stop = ui.button('🛑 ENTREGAR YA', on_click=entregar_parcial).classes('py-4 text-lg font-bold shadow-lg rounded-xl bg-red-600 text-white w-1/4 hidden transition-all')
 
     main_content()
 

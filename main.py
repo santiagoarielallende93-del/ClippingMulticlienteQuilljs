@@ -653,20 +653,22 @@ def descargar_y_preparar_update(url):
         if os.path.getsize(nuevo) < 5 * 1024 * 1024:  # validación mínima: un .exe real pesa MBs
             os.remove(nuevo); return False, "La descarga está incompleta o es inválida."
         bat = exe + ".update.bat"
-        with open(bat, 'w', encoding='utf-8') as f:
+        carpeta = os.path.dirname(exe)
+        with open(bat, 'w', encoding='utf-8') as f:  # v5.56: sin 'timeout' (falla sin consola) ni %n% dentro de paréntesis; espera por ping
             f.write(f'''@echo off
+cd /d "{carpeta}"
+ping -n 6 127.0.0.1 >nul
 set n=0
-timeout /t 3 /nobreak >nul
 :retry
 set /a n+=1
 move /y "{exe}" "{exe}.bak" >nul 2>&1
-if exist "{exe}" (
-  if %n% GEQ 15 goto fail
-  timeout /t 2 /nobreak >nul
-  goto retry
-)
-move /y "{nuevo}" "{exe}" >nul
-if not exist "{exe}" move /y "{exe}.bak" "{exe}" >nul
+if not exist "{exe}" goto swap
+if %n% GEQ 15 goto fail
+ping -n 3 127.0.0.1 >nul
+goto retry
+:swap
+move /y "{nuevo}" "{exe}" >nul 2>&1
+if not exist "{exe}" move /y "{exe}.bak" "{exe}" >nul 2>&1
 goto run
 :fail
 del "{nuevo}" >nul 2>&1
@@ -674,7 +676,7 @@ del "{nuevo}" >nul 2>&1
 start "" "{exe}"
 del "%~f0"
 ''')
-        subprocess.Popen(['cmd', '/c', bat], creationflags=0x00000008 | 0x00000200, close_fds=True)
+        subprocess.Popen(['cmd', '/c', bat], creationflags=0x08000000, close_fds=True, cwd=carpeta)  # CREATE_NO_WINDOW
         return True, "Actualizando..."
     except Exception as e:
         return False, f"Error al actualizar: {e}"

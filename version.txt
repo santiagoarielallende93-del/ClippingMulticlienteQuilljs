@@ -1,2 +1,2 @@
-2.1
-https://github.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/releases/download/2.1/main.exe
+2.2
+https://github.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/releases/download/2.2/main.exe

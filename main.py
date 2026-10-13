@@ -30,12 +30,70 @@ import threading
 # ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.4"
+APP_VERSION = "2.8"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
-GROQ_API_KEY = "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" 
-GROQ_API_KEY_2 = "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"  # Secundaria (respaldo ante saturación)
-GROQ_KEYS = [GROQ_API_KEY, GROQ_API_KEY_2]
+# v5.79: SECRETOS FUERA DEL CÓDIGO. Las keys y usuarios viven en archivos junto al .exe (config.env, usuarios.json, .secret)
+import hashlib, hmac, secrets
+BASE_DIR = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else __file__))
+_NOMBRES_CLIENTES_KEYS = ["MSD Salud Animal", "Mars", "BMS", "Arredo", "Amanco Wavin", "Booking", "Mail Boxes"]
+def _nombre_env(c): return "GROQ_KEY_" + re.sub(r'[^A-Z0-9]+', '_', c.upper()).strip('_')
+
+def _cargar_config_env():
+    ruta = os.path.join(BASE_DIR, "config.env")
+    if not os.path.exists(ruta):
+        try:
+            with open(ruta, 'w', encoding='utf-8') as f:
+                f.write("# Completá las API Keys de Groq (sin comillas ni espacios). No compartas este archivo.\n")
+                f.write("GROQ_KEY_COMPARTIDA_1=\nGROQ_KEY_COMPARTIDA_2=\n")
+                for c in _NOMBRES_CLIENTES_KEYS: f.write(f"{_nombre_env(c)}=\n")
+        except Exception: pass
+    cfg = {}
+    try:
+        with open(ruta, encoding='utf-8-sig') as f:
+            for l in f:
+                l = l.strip()
+                if l and not l.startswith('#') and '=' in l:
+                    k, v = l.split('=', 1); cfg[k.strip()] = v.strip().strip('"').strip("'")
+    except Exception: pass
+    return cfg
+_CFG = _cargar_config_env()
+GROQ_API_KEY = os.environ.get("GROQ_KEY_COMPARTIDA_1") or _CFG.get("GROQ_KEY_COMPARTIDA_1", "")
+GROQ_API_KEY_2 = os.environ.get("GROQ_KEY_COMPARTIDA_2") or _CFG.get("GROQ_KEY_COMPARTIDA_2", "")
+GROQ_KEYS = [k for k in (GROQ_API_KEY, GROQ_API_KEY_2) if k]
+# v5.87: Mail Boxes: keywords y búsquedas RSS agrupadas (Competencia y Noticias de Interés)
+# v5.86: velocidad: bloqueo de recursos pesados, lectura previa con requests y resolución de links de Google News sin navegador
+# v5.85: el lector del Word acepta también un link de Google Docs/Drive
+# v5.84: botón para cargar los links hipervinculados del Word compartido (por cliente y sección) en las notas manuales
+# v5.83: editor: auto-scroll al arrastrar una nota cerca del borde de la pantalla
+# v5.82: editor del reporte: mejoras visuales (animaciones, tarjetas, botones, scroll, modal, móvil)
+# v5.81: sin tope por búsqueda en Mars, MSD, Mail Boxes y en Exclusivas/Competencia/Mención de BMS, Arredo, Booking y Amanco; URLs RSS corregidas
+# v5.80: tope de notas por búsqueda automático = max(3, límite de la sección / nº de búsquedas)
+# v5.79: Mars Competencia y Noticias de Interés: RSS agrupados de a 3 con OR (se corrigen URLs mal formadas); APP_VERSION 2.7
+# v5.78: se elimina el registro de actividad (registro_uso.csv) y el visor de log del admin
+# v5.77: indicador de búsqueda solo para RSS de Google (no para feeds del Excel)
+# v5.76: nota excluida en una búsqueda se omite directo si reaparece en otra de la misma sección (solo por link)
+# v5.75: nota excluida en una búsqueda se omite directo si reaparece en otra de la misma sección
+# v5.74: Amanco Sustentabilidad: nuevos RSS agrupados y keywords
+# v5.73: se quita '· N sumadas' del chip; se muestra a la derecha el RSS en curso
+# v5.72: tiempo máximo por sección: 3 minutos (antes 2)
+# v5.71: límites: semana suma +10 extra (3 días +5 extra)
+# v5.70: máx 3 notas por búsqueda RSS (todos); límites +5 (+5 más si 3 días o semana)
+# v5.69: pantalla (junto al estado) = aprobadas totales x/límite de la sección; log = aprobadas por búsqueda RSS
+# v5.66: Amanco Industria: RSS agrupados con OR; orden por tier dentro de cada búsqueda (1 y 2 primero); Tier 3 excluidas en secciones de IDS_EXCLUIR_TIER3
+# v5.65: Amanco Industria e Infraestructura: nuevos RSS y keywords
+# v5.64: 'Copiar al portapapeles' copia solo el reporte (sin el bloque contenedor gris)
+# v5.63: 'Copiar al portapapeles' vuelve al método de v5.60 (se mantiene el botón ☰ del menú lateral)
+# v5.62: copiar al portapapeles sin demora (conserva el gesto del usuario) + respaldo con API del portapapeles
+# v5.61: menú lateral con botón ☰ para reabrir; 'Copiar al portapapeles' copia como selección manual (iframe)
+# v5.60: botón 'Copiar al portapapeles' en el editor (copia el reporte con formato)
+# v5.59: puerto configurable con la variable PUERTO (por defecto 8080)
+# v5.58: historial solo afecta feed/Google (no manuales); Arredo Competencia sin métricas; Booking Turismo: más notas tier 1/2 y tope 5 por sitio
+# v5.57: una API Key propia por cliente (evita saturaciones). Las compartidas de arriba quedan como respaldo.
+GROQ_KEY_POR_CLIENTE = {c: (os.environ.get(_nombre_env(c)) or _CFG.get(_nombre_env(c), "")) for c in _NOMBRES_CLIENTES_KEYS}
+def keys_para_cliente(cliente):
+    propia = GROQ_KEY_POR_CLIENTE.get(cliente)
+    return ([propia] if propia else []) + [k for k in GROQ_KEYS if k != propia]  # puede quedar vacía si falta config.env
 # ---------- FILTRO "SOLO ARGENTINA" (BMS, todas las secciones excepto Exclusivas) ----------
 CLIENTES_FILTRO_AR = ["BMS"]
 SECCIONES_SIN_FILTRO_AR = ["bms_tema_1"]  # Exclusivas
@@ -84,24 +142,26 @@ LIMITE_POOL_IA = 30  # Máx. de notas a analizar con IA por sección
 _GROQ_LOCK = threading.Lock()
 _GROQ_BLOQUEADA_HASTA = {}  # índice de key -> timestamp hasta el que se considera saturada
 
-def llamar_groq(payload, timeout=25, logger=None):
-    """POST a Groq con failover: usa la key 1; si está saturada (429/503), pasa a la key 2 (y viceversa)."""
+def llamar_groq(payload, timeout=25, logger=None, cliente=None):
+    """POST a Groq con la key propia del cliente; si está saturada (429/503) o inválida (401/403), pasa a las de respaldo."""
     ultimo_error = None
-    for idx in range(len(GROQ_KEYS)):
+    keys = keys_para_cliente(cliente)
+    for idx, key in enumerate(keys):
         with _GROQ_LOCK:
-            if _GROQ_BLOQUEADA_HASTA.get(idx, 0) > time.time():
+            if _GROQ_BLOQUEADA_HASTA.get(key, 0) > time.time():
                 continue
         try:
             resp = requests.post(
                 "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_KEYS[idx]}", "Content-Type": "application/json"},
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                 json=payload, timeout=timeout)
-            if resp.status_code in (429, 498, 503):
+            if resp.status_code in (401, 403, 429, 498, 503):
                 try: espera = min(float(resp.headers.get("retry-after", 60)), 3600)
                 except Exception: espera = 60
+                if resp.status_code in (401, 403): espera = 3600
                 with _GROQ_LOCK:
-                    _GROQ_BLOQUEADA_HASTA[idx] = time.time() + max(espera, 5)
-                if logger: logger(f"    🔑 API Key {idx+1} saturada (HTTP {resp.status_code}). Cambiando a la siguiente...")
+                    _GROQ_BLOQUEADA_HASTA[key] = time.time() + max(espera, 5)
+                if logger: logger(f"    🔑 API Key {idx+1} ({cliente or 'compartida'}) no disponible (HTTP {resp.status_code}). Probando la siguiente...")
                 ultimo_error = Exception(f"HTTP {resp.status_code} en key {idx+1}")
                 continue
             resp.raise_for_status()
@@ -111,7 +171,7 @@ def llamar_groq(payload, timeout=25, logger=None):
         except Exception as e:
             ultimo_error = e
             continue
-    raise ultimo_error or Exception("Todas las API Keys de Groq están saturadas")
+    raise ultimo_error or Exception("No hay API Keys configuradas (revisá config.env) o están todas saturadas")
 
 USAR_FILTRO_IA = True  # Desactivable globalmente si se requiere
 LINK_EXCEL_DRIVE = "https://docs.google.com/spreadsheets/d/1ZntitgSKrfkaL5rpG45ajwbr0yPVvfAp/edit?usp=sharing&ouid=110785507732300006515&rtpof=true&sd=true"
@@ -126,10 +186,38 @@ CACHE_IA_SESION = {}
 HISTORIAL_JSON = "historial_notas.json"
 HISTORIAL_EXCEL = "historial_notas.xlsx"
 
-CREDENCIALES = {
-    "admin": "admin123",
-    "usuario": "clipping2026"
-}
+def _hash_pw(pwd, salt=None):
+    salt = salt or secrets.token_hex(16)
+    return salt + "$" + hashlib.pbkdf2_hmac('sha256', pwd.encode('utf-8'), bytes.fromhex(salt), 200000).hex()
+
+def _verificar_pw(pwd, guardado):
+    try:
+        salt, _ = guardado.split("$", 1)
+        return hmac.compare_digest(_hash_pw(pwd, salt), guardado)
+    except Exception:
+        return False
+
+RUTA_USUARIOS = os.path.join(BASE_DIR, "usuarios.json")
+def _cargar_usuarios():
+    if not os.path.exists(RUTA_USUARIOS):  # primera vez: crea usuarios iniciales (cambiá las claves con: programa.exe --usuario NOMBRE CLAVE rol)
+        ini = {"admin": {"hash": _hash_pw("admin123"), "rol": "admin"}, "usuario": {"hash": _hash_pw("clipping2026"), "rol": "usuario"}}
+        try: json.dump(ini, open(RUTA_USUARIOS, 'w', encoding='utf-8'), indent=2)
+        except Exception: pass
+        return ini
+    try: return json.load(open(RUTA_USUARIOS, encoding='utf-8'))
+    except Exception: return {}
+
+def _storage_secret():
+    ruta = os.path.join(BASE_DIR, ".secret")
+    try:
+        if os.path.exists(ruta): return open(ruta, encoding='utf-8').read().strip()
+        v = secrets.token_hex(32); open(ruta, 'w', encoding='utf-8').write(v); return v
+    except Exception:
+        return secrets.token_hex(32)
+
+if len(sys.argv) >= 4 and sys.argv[1] == "--usuario":  # uso: main.exe --usuario NOMBRE CLAVE [admin|usuario]
+    _u = _cargar_usuarios(); _u[sys.argv[2]] = {"hash": _hash_pw(sys.argv[3]), "rol": sys.argv[4] if len(sys.argv) > 4 else "usuario"}
+    json.dump(_u, open(RUTA_USUARIOS, 'w', encoding='utf-8'), indent=2); print(f"Usuario '{sys.argv[2]}' guardado."); sys.exit(0)
 
 DOMINIOS_EXTRANJEROS = ['.mx', '.pe', '.co', '.cl', '.es', '.uy', '.py', '.ve', '.ec', '.bo', '.cr', '.gt', '.hn', '.ni', '.pa', '.sv', '.do',
                         '.br', '.pt', '.cu', '.pr', '.gq', '.eu', '.uk', '.fr', '.de', '.it', '.us', '.vn', '.io']
@@ -143,7 +231,7 @@ DOMINIOS_EXTRANJEROS_EXACTOS = [
 SUBDOMINIOS_EXTRANJEROS = ['mx', 'pe', 'co', 'cl', 'uy', 'py', 've', 'ec', 'bo', 'cr', 'gt', 'hn', 'ni', 'sv',
                            'mexico', 'espana', 'colombia', 'peru', 'chile', 'venezuela', 'ecuador', 'bolivia',
                            'uruguay', 'paraguay', 'guatemala', 'honduras', 'nicaragua', 'panama', 'elsalvador', 'costarica']
-PORTALES_EXTRANJEROS_KEYWORDS = ['investing.com espana', 'es.investing.com', 'profeco', 'peru retail', 'peru-retail', 'luz noticias', 'luznoticias', 'milenio', 'el universal mexico', 'el comercio peru', 'larepublica.pe', 'infobae colombia', 'infobae mexico', 'infobae peru', 'infobae espana']
+PORTALES_EXTRANJEROS_KEYWORDS = ['investing.com espana', 'es.investing.com', 'profeco', 'peru retail', 'peru-retail', 'luz noticias', 'luznoticias', 'milenio', 'el universal mexico', 'el comercio peru', 'larepublica.pe', 'infobae colombia', 'infobae mexico', 'infobae peru', 'infobae espana', 'tikr.com']
 
 RUTAS_EXTRANJERAS_KEYWORDS = [
     '/colombia/', '/mexico/', '/peru/', '/espana/', '/venezuela/',
@@ -178,18 +266,18 @@ CLIENTES_CONFIG = {
             {
                 "id": "ceo", "nombre": "CEO", "nombre_largo": "CEO",
                 "img_local": "banners/ceo.jpg", "img_url": "https://drive.google.com/file/d/1IH8MranbZnd_R--Nz5JZFbxbg3kDTfBB/view", 
-                "rss": ["https://news.google.com/rss/search?q=CEO%20-futbol%20-deportes%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "rss": ["https://news.google.com/rss/search?q=CEO%20-futbol%20-deportes%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
                 "keywords": ["ceo", "CEO", "entrevista", "Entrevista", "ENTREVISTA", "Chief Ejecutive Officer", "Director Ejecutivo", "en dialogo"], "exclusiones": ["fútbol", "futbol", "partido", "dt ", "boca", "river", "racing", "independiente", "san lorenzo", "champions", "tenis", "nba", "rugby", "goles", "gol ", "estadio", "scaloni", "actor", "actriz", "película", "pelicula", "cine", "teatro", "recital", "cantante", "música", "musica", "farándula", "gran hermano", "reality", "asesinato", "crimen"], "limite": 10,
                 "contexto_ia": "El interés es estrictamente sobre entrevistas, declaraciones o frases textuales de cualquier CEO, Presidente o Director de empresas operando en Argentina (no es obligatorio que sea de MSD). NO incluir notas que solo anuncien designaciones o cambios de puesto sin testimonios o dichos."
             },
             {
                 "id": "salud", "nombre": "Salud Animal", "nombre_largo": "Salud Animal",
                 "img_local": "banners/salud.jpg", "img_url": "https://drive.google.com/file/d/1Uc5WOsfk6kPBTncXsb6b7qOQlX3guYhz/view", 
-                "rss": ["https://news.google.com/rss/search?q=zoonosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "rss": ["https://news.google.com/rss/search?q=zoonosis%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
                 "https://news.google.com/rss/search?q=hantavirus%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=triquinosis%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22bienestar%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=%22salud%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=triquinosis%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=%22bienestar%20animal%22%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=%22salud%20animal%22%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
                 "https://news.google.com/rss/search?q=ARG%20gripe%20aviar%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
                 "keywords": ["gripe aviar", "zoonosis", "hantavirus", "triquinosis", "veterinaria", "salud animal", "humano", "humanos", "Biogénesis Bagó"], "exclusiones": ["pediatría", "hospital municipal", "paro médico", "prepaga", "ioma", "pami", "estética humana"], "limite": 10,
                 "contexto_ia": "El interés es sobre enfermedades transmitidas de animales a humanos (zoonosis) y novedades de la industria veterinaria en general. EXCLUIR notas cuyo foco principal sean las mascotas o animales de compañía."
@@ -197,37 +285,37 @@ CLIENTES_CONFIG = {
             {
                 "id": "mascotas", "nombre": "Animales de Compañía", "nombre_largo": "Animales de Compañía / Mascotas",
                 "img_local": "banners/mascotas.jpg", "img_url": "https://drive.google.com/file/d/1-zviGD1bM6e5493pKhUntxGXVQTquj5z/view", 
-                "rss": ["https://news.google.com/rss/search?q=mascotas%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=perros%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-                "https://news.google.com/rss/search?q=gatos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=animales%20de%20compa%C3%B1%C3%ADa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "rss": ["https://news.google.com/rss/search?q=AR%20mascotas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=AR%20perros%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+                "https://news.google.com/rss/search?q=AR%20gatos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20animales%20de%20compa%C3%B1%C3%ADa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
                 "keywords": ["Mascotas", "Perros", "Perro", "Gato", "Gatos", "Animales de compañía", "canino", "felino"], "exclusiones": ["ballena", "delfín", "tiburón", "fauna silvestre", "zoológico", "zoo ", "matt damon", "actor", "actriz", "película", "pelicula", "cine", "hollywood", "famosos", "farándula", "gran hermano", "reality", "hugo sigman", "insud", "diputado", "senador"], "limite": 15,
                 "contexto_ia": "El interés es EXCLUSIVAMENTE sobre mascotas (perros y gatos domésticos)."
             },
             {
                 "id": "aves", "nombre": "Aves", "nombre_largo": "Aves",
                 "img_local": "banners/aves.jpg", "img_url": "https://drive.google.com/file/d/1xxWwhur4zqeiH5OyH11LtVa-nqH-Bvfp/view", 
-                "rss": ["https://news.google.com/rss/search?q=avicultura%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22granjas%20av%C3%ADcolas%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=produccion%20avicola%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=gallinas%20huevos%20produccion%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "rss": ["https://news.google.com/rss/search?q=avicultura%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22granjas%20av%C3%ADcolas%22%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=produccion%20avicola%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=gallinas%20huevos%20produccion%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
                 "keywords": ["Aves", "Avicultura", "Avícola", "avícolas", "huevo", "huevos", "gallina", "gallinas", "granjas avícolas"], "exclusiones": ["dinosaurio", "fósil", "cóndor", "fauna silvestre", "avión", "aerolíneas", "vuelo"], "limite": 10,
                 "contexto_ia": "El interés es sobre avicultura, granjas avícolas, gallinas, pollos, y la producción o consumo de huevos/carne aviar en Argentina."
             },
             {
                 "id": "cerdos", "nombre": "Cerdos", "nombre_largo": "Cerdos",
                 "img_local": "banners/cerdos.jpg", "img_url": "https://drive.google.com/file/d/1vvV1SK4Vf0Y6Zijn_9pOIfQbZV11Gw-v/view", 
-                "rss": ["https://news.google.com/rss/search?q=cerdos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcina%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "rss": ["https://news.google.com/rss/search?q=cerdos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcino%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=porcina%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
                 "keywords": ["Cerdos", "Cerdas", "Porcino", "Porcina"], "exclusiones": ["actor", "actriz", "farándula", "película", "cine"], "limite": 10,
                 "contexto_ia": "El interés es sobre porcicultura, producción y consumo de cerdos en Argentina, y enfermedades porcinas que NO se transmiten a humanos."
             },
             {
                 "id": "ganaderia", "nombre": "Ganadería", "nombre_largo": "Ganadería",
                 "img_local": "banners/ganaderia.jpg", "img_url": "https://drive.google.com/file/d/1JglW_UjMe-Lzqc7nxA1Ws776gVqXPI08/view", 
-                "rss": ["https://news.google.com/rss/search?q=ganaderia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tecnovax%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=bovino%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=feedlot%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=vacas%20ganado%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "rss": ["https://news.google.com/rss/search?q=ganaderia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tecnovax%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=bovino%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=feedlot%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=vacas%20ganado%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
                 "keywords": ["Ganadería", "Ganadero", "Bovino", "Ganado", "vacas", "vaca", "feedlot", "feedlots", "tecnovax", "lechería", "leche", "brucelosis", "tuberculosis", "aftosa",], "exclusiones": ["actor", "actriz", "farándula", "película", "cine", "fútbol", "Vaca Muerta"], "limite": 20,
                 "contexto_ia": "El interés es sobre ganadería bovina, lechería, tambos, producción y consumo de carne vacuna, y enfermedades bovinas que NO se transmiten a humanos."
             },
             {
                 "id": "innovacion", "nombre": "Innovación en Salud Animal", "nombre_largo": "Innovación en Salud Animal",
                 "img_local": "banners/innovacion.jpg", "img_url": "https://drive.google.com/file/d/1A6JsKrwszGa5UQaxtE-fOda1gleA9jP9/view", 
-                "rss": ["https://news.google.com/rss/search?q=%22innovacion%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22tecnologia%20veterinaria%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22biotecnologia%20animal%22%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
+                "rss": ["https://news.google.com/rss/search?q=%22innovacion%20animal%22%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22tecnologia%20veterinaria%22%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22biotecnologia%20animal%22%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
                 "keywords": ["Innovación", "tecnología veterinaria", "biotecnología animal"], "exclusiones": ["actor", "farándula", "cine"], "limite": 5
             }
         ]
@@ -236,11 +324,11 @@ CLIENTES_CONFIG = {
         "color_primario": "#0000FF", "hoja_excel": "Mars", "temas_excluir": [], "banner_principal_local": "banners/mars_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1pi3-8vZ-xr9p0AVR8tZmLaknj2kuhY7W/view",
         "secciones": [
             { "id": "mars_exclusivas", "nombre": "Exclusivas", "nombre_largo": "Banner Separador Exclusivas", "img_local": "banners/mars_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1tOcO3nn8Dsa55rldjciutv5cFr0h_VNP/view", "es_separador": True, "rss": [], "keywords": [], "exclusiones": [], "limite": 0 },
-            { "id": "mars_tema_1", "nombre": "Corporativo", "nombre_largo": "Corporativo", "img_local": "banners/mars_corporativo.jpg", "img_url": "https://drive.google.com/file/d/1Vb7xaz32_V2lphPsAdJELhzPqeSERLJY/view", "rss": ["https://news.google.com/rss/search?q=AR%20Mars%20South%20Latam%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
+            { "id": "mars_tema_1", "nombre": "Corporativo", "nombre_largo": "Corporativo", "img_local": "banners/mars_corporativo.jpg", "img_url": "https://drive.google.com/file/d/1Vb7xaz32_V2lphPsAdJELhzPqeSERLJY/view", "rss": ["https://news.google.com/rss/search?q=AR%20Mars%20South%20Latam%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Mars%20South%20Latam%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=Mars%20Petcare%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
-            "https://news.google.com/rss/search?q=AR%20Mars%20Petcare%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
-            "https://news.google.com/rss/search?q=Romina%20Ferreyra%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Mars%20Petcare%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=AR%20Mars%20Petcare%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Romina%20Ferreyra%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Mattia%20Iannone%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Mar%C3%ADa%20No%C3%ABl%20Travetto%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419","https://news.google.com/rss/search?q=Guadalupe%20P%C3%A9rez%20Torelli%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], 
             "keywords": ["Mars", "South", "Latam", "Mars South Latam", "Romina Ferreyra", "Mattia Iannone", "María Noël Travetto", "Guadalupe Pérez Torelli"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
@@ -250,15 +338,9 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=Whiskas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Pedigree%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Pedigree", "Whiskas", "Guadalupe Perez Torelli", "Mars Petcare"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
             { "id": "mars_tema_3", "nombre": "Snacking", "nombre_largo": "Snacking", "img_local": "banners/mars_snacking.jpg", "img_url": "https://drive.google.com/file/d/1ji-Jx3hf4XKQbxl013c84Hhaezri3Wj-/view", "rss": ["https://news.google.com/rss/search?q=AR%20Mars%20Snacking%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mars", "Snacking", "Mars Snacking"], "exclusiones": ["marte", "veronica mars", "bruno mars", "Jared Leto", "30 seconds to mars", "profeco", "mexico", "peru"], "limite": 20 },
-            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Wouu%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Nestl%C3%A9%2Bpurina%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Alican%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Royal%20Canin%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Eukanuba%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Purina%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Metrive%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Sieger%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Agroindustrias%20Baires%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=AR%20Alimento%20mascota%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Wouu", "Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires", "Dogrun", "Old Prince", "Fawna", "Kongo"], "exclusiones": ["cafe"], "limite": 20 },
-            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=consumo%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/search?q=AR%20consumo%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=Alimento%20mascota%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=AR%20Alimento%20mascota%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
-            "https://news.google.com/rss/search?q=AR%20perros%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=AR%20gatos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rsssearch?q=AR%20mascotas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", "nutrición animal", "nutrición de animales", "WSAVA"], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru", "huevo", "huevos"], "limite": 20 }
+            { "id": "mars_competencia", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mars_competencia.jpg", "img_url": "https://drive.google.com/file/d/1xTP21p0Xd8fbr9sSqZ8I1ON8FBy2Qovz/view", "rss": ["https://news.google.com/rss/search?q=Wouu%20OR%20%22Nestl%C3%A9%20purina%22%20OR%20Alican%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Royal%20Canin%22%20OR%20Eukanuba%20OR%20Purina%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Vitalcan%20OR%20Metrive%20OR%20Sieger%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Agroindustrias%20Baires%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Alimento%20mascota%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Wouu", "Nestlé", "Alican", "Bacan", "Purina", "Mon Ami", "Metrive", "Eukanuba", "Royal Canin", "Vitalcan", "Sieger", "Agroindustrias Baires", "Dogrun", "Old Prince", "Fawna", "Kongo"], "exclusiones": ["cafe"], "limite": 20 },
+            { "id": "mars_interes", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mars_interes.jpg", "img_url": "https://drive.google.com/file/d/1U6reL2Cj2o6XhbHB8nmssoLqYNyIJulK/view", "rss": ["https://news.google.com/rss/search?q=AR%20consumo%20OR%20inflaci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20perros%20OR%20gatos%20OR%20mascotas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Alimento%20de%20mascota%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["consumo", "consumo masivo", "industria alimenticia", "supermercados", "inflación", "pobreza", "alimentos", "mascotas", "perro", "perros", "gato", "gatos", "nutrición animal", "nutrición de animales", "WSAVA"], "exclusiones": ["PBI", "drogas", "cocaína", "marihuana", "alcohol", "carne", "vacuna", "vacuno", "porcino", "aviar", "profeco", "mexico", "peru", "huevo", "huevos"], "limite": 20 }
         ]
     },
     "BMS": {
@@ -360,8 +442,8 @@ CLIENTES_CONFIG = {
         "secciones": [
             { "id": "arredo_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/arredo_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/18HsLa3b-kNOtgaR5YYxMlaUo6UvHpxJH/view", "rss": ["https://news.google.com/rss/search?q=Arredo%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
             { "id": "arredo_tema_2", "nombre": "Mención", "nombre_largo": "Menciones", "img_local": "banners/arredo_menciones.jpg", "img_url": "https://drive.google.com/file/d/19U90rGK_pWlKGssHxlYX9Zu-cQGoA4Ce/view", "rss": ["https://news.google.com/rss/search?q=Arredo%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Arredo"], "exclusiones": [], "limite": 20 },
-            { "id": "arredo_tema_3", "nombre": "Recursos Humanos", "nombre_largo": "Recursos Humanos", "img_local": "banners/arredo_recursoshumanos.jpg", "img_url": "https://drive.google.com/file/d/1zXnXWvMT-CKfFEgB2dbjqNZWtOvOCisQ/view", "rss": ["https://news.google.com/search?q=Empleabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["empleabilidad", "inclusión laboral", "informalidad", "becas", "pasantías", "mejores empresas", "mejor empresa", "trabajar", "empleo", "derechos laborales", "mercado laboral", "liderazgo"], "exclusiones": [], "limite": 10 },
-            { "id": "arredo_tema_4", "nombre": "Diversidad y Género", "nombre_largo": "Diversidad y Género", "img_local": "banners/arredo_diversidadygenero.jpg", "img_url": "https://drive.google.com/file/d/17P15vUG1zciLz_-j3sFKUax-nIpqAcsO/view", "rss": ["https://news.google.com/search?q=AR%20Diversidad%20y%20g%C3%A9nero%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["mujeres", "inclusión", "mujeres", "mujeres emprendedoras", "mujeres profesionales", "violencia de género", "brecha salarial", "primer empleo", "empleo joven"], "exclusiones": [], "limite": 10 },
+            { "id": "arredo_tema_3", "nombre": "Recursos Humanos", "nombre_largo": "Recursos Humanos", "img_local": "banners/arredo_recursoshumanos.jpg", "img_url": "https://drive.google.com/file/d/1zXnXWvMT-CKfFEgB2dbjqNZWtOvOCisQ/view", "rss": ["https://news.google.com/rss/search?q=Empleabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["empleabilidad", "inclusión laboral", "informalidad", "becas", "pasantías", "mejores empresas", "mejor empresa", "trabajar", "empleo", "derechos laborales", "mercado laboral", "liderazgo"], "exclusiones": [], "limite": 10 },
+            { "id": "arredo_tema_4", "nombre": "Diversidad y Género", "nombre_largo": "Diversidad y Género", "img_local": "banners/arredo_diversidadygenero.jpg", "img_url": "https://drive.google.com/file/d/17P15vUG1zciLz_-j3sFKUax-nIpqAcsO/view", "rss": ["https://news.google.com/rss/search?q=AR%20Diversidad%20y%20g%C3%A9nero%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["mujeres", "inclusión", "mujeres", "mujeres emprendedoras", "mujeres profesionales", "violencia de género", "brecha salarial", "primer empleo", "empleo joven"], "exclusiones": [], "limite": 10 },
             { "id": "arredo_tema_5", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/arredo_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1WSuNM_EBYjj45-K2T-qtFtONuseJ7TCU/view", "rss": ["https://news.google.com/rss/search?q=AR%20Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Empresa B", "sustentabilidad", "energía renovable", "reciclar", "reciclado", "economía circular"], "exclusiones": [], "limite": 10 },
             { "id": "arredo_tema_6", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/arredo_competencia.jpg", "img_url": "https://drive.google.com/file/d/1VxLJRHbvfqtOgLBWeVqGquFxnNX0-swx/view", "rss": ["https://news.google.com/rss/search?q=Home%20Collection%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Duvet%20Home%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
@@ -374,7 +456,7 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=H%26G%20Home%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=%22Alto%20Rancho%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Franco%20Valente%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Home Collection", "Duvet Home", "Kavanagh", "Landmark", "Indian", "Casablanca", "Jean Cartier", "Ad Home", "Egger", "H&G Home", "AltoRancho", "Franco Valente"], "exclusiones": [], "limite": 10 },
-            { "id": "arredo_tema_7", "nombre": "Noticias de Interes", "nombre_largo": "Noticias de Interes", "img_local": "banners/arredo_noticiasdeinteres.jpg", "img_url": "https://drive.google.com/file/d/1rVjjNmlVdhJU2Ed7wJVV4wwhkqeF70rH/view", "rss": ["https://news.google.com/rss/search?q=industria%20textil%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=inflaci%C3%B3n%20when%3A1d%20ARG&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["textil", "industria", "industria textil", "fabrica", "fabricas", "inflación", "pymes", "consumo", "pobreza", "dormir", "decoración", "ropa de cama", "hábitos de sueño", "ecommerce"], "exclusiones": [], "limite": 20 }
+            { "id": "arredo_tema_7", "nombre": "Noticias de Interes", "nombre_largo": "Noticias de Interes", "img_local": "banners/arredo_noticiasdeinteres.jpg", "img_url": "https://drive.google.com/file/d/1rVjjNmlVdhJU2Ed7wJVV4wwhkqeF70rH/view", "rss": ["https://news.google.com/rss/search?q=industria%20textil%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=inflaci%C3%B3n%20ARG%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["textil", "industria", "industria textil", "fabrica", "fabricas", "inflación", "pymes", "consumo", "pobreza", "dormir", "decoración", "ropa de cama", "hábitos de sueño", "ecommerce"], "exclusiones": [], "limite": 20 }
         ]
     },
     "Amanco Wavin": {
@@ -385,10 +467,10 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=%22DEMA%22%20OR%20Aqualaf%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Awaduct%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
             ], "keywords": ["FV", "Ferrum", "Rotoplas", "DEMA", "Duke", "Aqualaf", "AWADUCT", "Roca"], "exclusiones": [], "limite": 10 },
-            { "id": "amanco_tema_3", "nombre": "Industria e Infraestructura", "nombre_largo": "Industria e Infraestructura", "img_local": "banners/amanco_industriaeinfraestructura.jpg", "img_url": "https://drive.google.com/file/d/1-6eOexICM6t-Iiro5dIUfP1WDSLxz7U6/view", "rss": ["https://news.google.com/rss/search?q=AR%20infraestructura%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20prefabricada%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ducha%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AySA%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20alba%C3%B1il%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            { "id": "amanco_tema_3", "nombre": "Industria e Infraestructura", "nombre_largo": "Industria e Infraestructura", "img_local": "banners/amanco_industriaeinfraestructura.jpg", "img_url": "https://drive.google.com/file/d/1-6eOexICM6t-Iiro5dIUfP1WDSLxz7U6/view", "rss": [ "https://news.google.com/rss/search?q=AR%20prefabricada%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=ducha%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",  "https://news.google.com/rss/search?q=AR%20alba%C3%B1il%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Camara%20argentina%20de%20la%20construcci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=CAMARCO%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["vivienda", "obra pública", "Infraestructura", "rutas", "construcción", "construir", "albañil", "inflación", "obras", "agua", "riego", "plomero", "plomería", "baño", "baños", "hídricos", "materiales", "Loma Negra", "prefabricada", "casa", "casas", "Aysa", "AySa", "Camarco"], "exclusiones": ["rural", "sanitaria", "futbol"], "limite": 15 },
-            { "id": "amanco_tema_4", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/amanco_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1ILvTnUcm-FF7lbWStCXUqYsRe8pyhxHB/view", "rss": ["https://news.google.com/rss/search?q=AR%20Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["sustentable", "sustentabilidad", "sostenible", "Empresa B"], "exclusiones": [], "limite": 10 }
+            "https://news.google.com/rss/search?q=CAMARCO%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20Infraestructura%20OR%20Oficios%20OR%20cloacas%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22mano%20de%20obra%22%20OR%20Rutas%20OR%20construir%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20inflaci%C3%B3n%20OR%20obras%20OR%20agua%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20riego%20OR%20plomero%20OR%20plomer%C3%ADa%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20ba%C3%B1o%20OR%20ba%C3%B1os%20OR%20h%C3%ADdricos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20materiales%20OR%20%22Loma%20Negra%22%20OR%20%22cr%C3%A9dito%20hipotecario%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20aysa%20OR%20%22obra%20p%C3%BAblica%22%20OR%20%22construcci%C3%B3n%20modular%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20vivienda%20OR%20%22instalaciones%20sanitarias%22%20OR%20%22sistemas%20de%20tuber%C3%ADas%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22materiales%20de%20construcci%C3%B3n%22%20OR%20geosint%C3%A9ticos%20OR%20%22infraestructura%20vial%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20impermeabilizaci%C3%B3n%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["vivienda", "obra pública", "Infraestructura", "rutas", "construcción", "construir", "albañil", "inflación", "obras", "agua", "riego", "plomero", "plomería", "baño", "baños", "hídricos", "materiales", "Loma Negra", "prefabricada", "casa", "casas", "Aysa", "AySa", "Camarco", "Oficios", "cloacas", "mano de obra", "crédito hipotecario", "construcción modular", "instalaciones sanitarias", "sistemas de tuberías", "materiales de construcción", "geosintéticos", "infraestructura vial", "impermeabilización"], "exclusiones": ["rural", "sanitaria", "futbol"], "limite": 15 },
+            { "id": "amanco_tema_4", "nombre": "Sustentabilidad", "nombre_largo": "Sustentabilidad", "img_local": "banners/amanco_sustentabilidad.jpg", "img_url": "https://drive.google.com/file/d/1ILvTnUcm-FF7lbWStCXUqYsRe8pyhxHB/view", "rss": ["https://news.google.com/rss/search?q=AR%20Sustentabilidad%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22uso%20eficiente%20del%20agua%22%20OR%20%22ahorro%20de%20agua%22%20OR%20reciclaje%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22El%20Ni%C3%B1o%22%20OR%20%22materiales%20reciclados%22%20OR%20%22productos%20sustentables%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22eficiencia%20de%20recursos%22%20OR%20%22gesti%C3%B3n%20de%20residuos%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["sustentable", "sustentabilidad", "sostenible", "Empresa B", "uso eficiente del agua", "ahorro de agua", "reciclaje", "El Niño", "materiales reciclados", "productos sustentables", "eficiencia de recursos", "gestión de residuos"], "exclusiones": [], "limite": 10 }
         ]
     },
     "Booking": {
@@ -398,26 +480,36 @@ CLIENTES_CONFIG = {
             "https://news.google.com/rss/search?q=AR%20Booking%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Booking.com%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Booking%20Holding%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
-            "https://news.google.com/rss/search?q=Jimena%20Guti%C3%A9rrez%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"
-            "https://news.google.com/search?q=Traveller%20Review%20Awards%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Booking", "Booking.com", "Booking Argentina", "Booking Holding", "Jimena Gutiérrez", "Traveller Review Awards",], "exclusiones": [], "limite": 20 },
+            "https://news.google.com/rss/search?q=Jimena%20Guti%C3%A9rrez%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
+            "https://news.google.com/rss/search?q=Traveller%20Review%20Awards%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Booking", "Booking.com", "Booking Argentina", "Booking Holding", "Jimena Gutiérrez", "Traveller Review Awards",], "exclusiones": [], "limite": 20 },
             { "id": "booking_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/booking_competencia.jpg", "img_url": "https://drive.google.com/file/d/1SD6Qf6FxN8lvIuwqiywS8hCThh5IGH4B/view", "rss": ["https://news.google.com/rss/search?q=AR%20Airbnb%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Almundo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Turismocity%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Tripadvisor%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Expedia%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",            "https://news.google.com/rss/search?q=%22Despegar%22%20OR%20Paula%20Cristi%20when%3A10d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=%22Atr%C3%A1palo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419",
             "https://news.google.com/rss/search?q=Citavis%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Airbnb", "Turismocity", "Almundo", "Tripadvisor", "TripAdvisor", "Expedia", "Despegar", "Atrápalo", "Citavis", ], "exclusiones": [], "limite": 20 },
-            { "id": "booking_tema_3", "nombre": "Turismo", "nombre_largo": "Turismo", "img_local": "banners/booking_turismo.jpg", "img_url": "https://drive.google.com/file/d/1PVMiBHJuTBdm7YQn6OF1c9F31gvyckZR/view", "rss": ["https://news.google.com/rss/search?q=AR%20%22Turismo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Vacaciones%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22viajes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["turismo", "plataforma de viajes", "alojamiento", "alquiler temporario", "destinos turísticos", "viajes", "tendencias de viaje", "viajes gastronómicos", "turismo sostenible", "estafas en viajes", "fin de semana largo", "destinos más buscados"], "exclusiones": ["jugadores", "jugador", "Lionel Scaloni", "futbol", "futbolista", "Messi", "selección", "famosos", "actor", "actriz", "romance", "novio", "novia", "farándula", "gran hermano", "teatro", "separación", "escándalo", "modelo", "cantante"], "limite": 20 }
+            { "id": "booking_tema_3", "nombre": "Turismo", "nombre_largo": "Turismo", "img_local": "banners/booking_turismo.jpg", "img_url": "https://drive.google.com/file/d/1PVMiBHJuTBdm7YQn6OF1c9F31gvyckZR/view", "rss": ["https://news.google.com/rss/search?q=turismo%20site%3Ainfobae.com%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=turismo%20site%3Aclarin.com%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=turismo%20site%3Acronista.com%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=turismo%20site%3Alanacion.com.ar%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=turismo%20site%3Aambito.com%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=turismo%20site%3Aperfil.com%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=turismo%20site%3Atn.com.ar%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=turismo%20site%3Aiprofesional.com%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=turismo%20site%3Apagina12.com.ar%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Turismo%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Vacaciones%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22viajes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["turismo", "plataforma de viajes", "alojamiento", "alquiler temporario", "destinos turísticos", "viajes", "tendencias de viaje", "viajes gastronómicos", "turismo sostenible", "estafas en viajes", "fin de semana largo", "destinos más buscados"], "exclusiones": ["jugadores", "jugador", "Lionel Scaloni", "futbol", "futbolista", "Messi", "selección", "famosos", "actor", "actriz", "romance", "novio", "novia", "farándula", "gran hermano", "teatro", "separación", "escándalo", "modelo", "cantante"], "limite": 20 }
         ]
     },
     "Mail Boxes": {
         "color_primario": "#0000FF", "hoja_excel": "Mail Boxes", "temas_excluir": [], "banner_principal_local": "banners/mailboxes_principal.jpg", "banner_principal_url": "",
         "secciones": [
             { "id": "mailboxes_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/mailboxes_exclusivas.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=%22Mail%20Boxes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mail Boxes", "Mail Boxes Etc", "MBE"], "exclusiones": [], "limite": 20 },
-            { "id": "mailboxes_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mailboxes_competencia.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=Andreani%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Correo%20Argentino%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=OCA%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Andreani", "Correo Argentino", "OCA", "DHL", "FedEx", "UPS"], "exclusiones": [], "limite": 20 },
-            { "id": "mailboxes_tema_3", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mailboxes_interes.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=courier%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=log%C3%ADstica%20e-commerce%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["courier", "envíos", "logística", "e-commerce", "paquetería"], "exclusiones": [], "limite": 20 },
+            { "id": "mailboxes_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mailboxes_competencia.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=Andreani%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Correo%20Argentino%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=OCA%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Fasttrack%20Argentina%22%20OR%20%22Aerobox%20Argentina%22%20OR%20%22Del%20Mundo%20Courier%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22DHL%20Argentina%22%20OR%20%22FedEx%20Argentina%22%20OR%20UPS%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=OCASA%20OR%20OCA%20OR%20%22Urbano%20Express%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Lancioni%20OR%20%22Cruz%20del%20Sur%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Andreani", "Correo Argentino", "OCA", "DHL", "FedEx", "UPS", "Fasttrack", "Aerobox", "Del Mundo Courier", "OCASA", "Urbano Express", "Lancioni", "Cruz del Sur"], "exclusiones": ["pickups"], "limite": 20 },
+            { "id": "mailboxes_tema_3", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mailboxes_interes.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=courier%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=log%C3%ADstica%20e-commerce%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Importaci%C3%B3n%20Argentina%22%20OR%20Exportaci%C3%B3n%20OR%20%22Desregulaci%C3%B3n%20aduaneras%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Desregulaci%C3%B3n%20de%20transporte%22%20OR%20%22Comercio%20exterior%22%20OR%20%22Transporte%20de%20cargas%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20Log%C3%ADstica%20OR%20Courier%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["courier", "envíos", "logística", "e-commerce", "paquetería", "Importación", "Exportación", "Desregulación aduaneras", "Desregulación de transporte", "Comercio exterior", "Transporte de cargas"], "exclusiones": [], "limite": 20 },
         ]
     }
 }
 
 IDS_SINTESIS = ["exclusivas", "mars_tema_1", "mars_tema_2", "mars_tema_3", "bms_tema_1", "arredo_tema_1", "arredo_tema_2", "amanco_tema_1", "booking_tema_1", "mars_competencia", "bms_tema_4", "arredo_tema_6", "amanco_tema_2", "booking_tema_2", "mailboxes_tema_1", "mailboxes_tema_2"]  # v5.47
 IDS_EXCLUSIVAS = ["exclusivas", "bms_tema_1", "arredo_tema_1", "amanco_tema_1", "booking_tema_1", "mailboxes_tema_1"]
+MAX_NOTAS_POR_BUSQUEDA = 3  # v5.70
+CLIENTES_SIN_TOPE_BUSQUEDA = ['Mars', 'MSD Salud Animal', 'Mail Boxes']  # v5.81: clientes sin tope por búsqueda (todas sus secciones)
+SECCIONES_SIN_TOPE_BUSQUEDA = ['bms_tema_1', 'bms_tema_4', 'arredo_tema_1', 'arredo_tema_2', 'arredo_tema_6', 'booking_tema_1', 'booking_tema_2', 'amanco_tema_1', 'amanco_tema_2']  # v5.81: Exclusivas/Mención/Competencia
+def limite_ajustado(limite, timeframe):  # v5.70: +5 a todos los límites; +5 más si la búsqueda es de 3 días o de toda la semana
+    try: base = int(limite) + 5
+    except Exception: return limite
+    return base + (5 if timeframe == "3d" else (10 if timeframe in ("5d", "7d") else 0))  # v5.71: 3 días +5 extra; semana +10 extra
+FEED_TERMINOS = {}  # v5.67: feed_id -> término de búsqueda (para el indicador de progreso)
+IDS_EXCLUIR_TIER3 = ['amanco_tema_3']  # v5.66: secciones donde las notas Tier 3 se excluyen (agregar ids para sumar más)
+IDS_SIN_METRICAS = ['mars_competencia', 'bms_tema_4', 'booking_tema_2', 'mailboxes_tema_2', 'arredo_tema_6']  # v5.58: Competencia sin métricas (se suma Arredo)
 IDS_COMPETENCIA = ["mars_competencia", "bms_tema_4", "arredo_tema_6", "amanco_tema_2", "booking_tema_2", "mailboxes_tema_2"]
 
 # ====================================================================
@@ -432,7 +524,7 @@ def formatear_fecha(texto_fecha):
 
 def tipo_metricas(sec_id):  # v5.43: 'booking' (solo Ad Value), 'full' (Alcance/Tier/Ad Value) o 'none'
     if sec_id == 'booking_tema_1': return 'booking'
-    if sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4', 'booking_tema_2', 'mailboxes_tema_2']: return 'full'
+    if sec_id in IDS_SINTESIS and sec_id not in IDS_SIN_METRICAS: return 'full'
     return 'none'
 
 def remover_acentos(texto): 
@@ -486,6 +578,14 @@ def limpiar_nombre_medio(medio):
         "Vetmarketportal": "Vet Market",
         "Bhinfo": "BH Info",
         "Norteenlinea": "Norte en Línea",
+        "Forbesargentina": "Forbes Argentina",
+        "Infonegocios": "Info Negocios",
+        "Infocampo": "Info Campo",
+        "Palabradecampo": "Palabra de Campo",
+        "Saladillocampo": "Saladillo Campo",
+        "Valorcarne": "Valor Carne",
+        "Todojujuy": "Todo Jujuy",
+        "Rtsmedios": "RTS Medios",
     }
     return correcciones.get(texto_final, texto_final)
 
@@ -544,7 +644,7 @@ def evaluar_relevancia_ia_lotes(lote_notas, cliente_nombre, nombre_seccion, pala
             prompt += f"{item['id']}: {texto_reducido}\n"
             
         resp = llamar_groq({"model": "openai/gpt-oss-20b", "messages": [{"role": "user", "content": prompt}],
-                            "temperature": 0, "max_tokens": 400, "reasoning_effort": "low"}, timeout=25, logger=logger)
+                            "temperature": 0, "max_tokens": 400, "reasoning_effort": "low"}, timeout=25, logger=logger, cliente=cliente_nombre)
         resultado_crudo = resp.json()["choices"][0]["message"]["content"].strip()
         if logger: logger(f"    🤖 IA analizó bloque de {len(lote_notas)} notas juntas.")
         
@@ -855,7 +955,7 @@ def sort_key_final(n, sec_id):
     es_grafica = 0 if n.get('tipo_medio') == 'Gráfica' else 1
     medio_lower = str(n.get('medio', '')).lower()
     ts_fecha = parse_fecha_sortable(n.get('fecha', ''))
-    if sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4', 'booking_tema_2', 'mailboxes_tema_2']:
+    if sec_id in IDS_SINTESIS and sec_id not in IDS_SIN_METRICAS:
         red = _rank_red(n)
         tier_val = int(_num_orden(n.get('tier', ''))) if _num_orden(n.get('tier', '')) in (1, 2, 3) else 99
         if es_grafica == 0: cat = 0
@@ -1179,14 +1279,7 @@ def aplicar_prefiltro_rss(tuplas, timeframe, exclusiones, df_medios, logger, eti
     return conservadas
 
 def registrar_actividad(usuario, accion, detalles):
-    archivo_log = "registro_uso.csv"
-    archivo_existe = os.path.isfile(archivo_log)
-    fecha_hora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    with open(archivo_log, mode='a', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        if not archivo_existe: 
-            writer.writerow(["Fecha y Hora", "Usuario", "Acción", "Detalles"])
-        writer.writerow([fecha_hora, usuario, accion, detalles])
+    return  # v5.78: registro de actividad desactivado (ya no se escribe registro_uso.csv)
 
 # ====================================================================
 # COMPONENTE DE CONSOLA / MONITOR DE PROCESOS INTERACTIVO
@@ -1255,6 +1348,8 @@ class AppState:
         self.log_container = None
         self.timer_label = None
         self.status_chip = None
+        self.progress_label = None
+        self.rss_label = None
         self.last_data_editor = None
         self.last_data_auditoria = None
         # --- NUEVO ---
@@ -1345,6 +1440,156 @@ def extraer_feeds_globales(df_globales):
             urls_encontradas.append(v_str)
     return list(dict.fromkeys(urls_encontradas))
 
+# v5.84: lector del Word compartido: toma SOLO los links hipervinculados debajo de cada cliente y sección
+WORD_CLIENTES_TITULO = {'Arredo': 'arredo', 'Amanco Wavin': 'amanco', 'BMS': 'bristol', 'Booking': 'booking', 'Mars': 'mars', 'MSD Salud Animal': 'msd', 'Mail Boxes': 'mail box'}
+WORD_ALIAS_SECCION = {'rrhh': 'recursos humanos', 'noticias generales': 'noticias de interes'}
+WORD_DOMINIOS_IGNORADOS = ('docs.google.com', 'drive.google.com')
+
+def _norm_word(t):
+    t = unicodedata.normalize('NFD', str(t).lower())
+    t = ''.join(c for c in t if unicodedata.category(c) != 'Mn')
+    return re.sub(r'[^a-z0-9]+', ' ', t).strip()
+
+def leer_links_word(ruta, cliente_nombre, secciones):
+    """Devuelve (links_por_seccion {sec_id: [urls]}, sin_seccion [urls], error)."""
+    import zipfile, shutil, tempfile
+    import xml.etree.ElementTree as ET
+    W = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+    R = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}'
+    try:
+        tmp = os.path.join(tempfile.gettempdir(), 'clipping_word_tmp.docx')
+        if str(ruta).lower().startswith('http'):  # v5.85: acepta link de Google Docs / Drive (con acceso "cualquiera con el link")
+            _m = re.search(r'/(?:document|file)/d/([A-Za-z0-9_-]+)', ruta)
+            if not _m: return {}, [], "El link no parece ser de Google Docs/Drive."
+            _id = _m.group(1)
+            _url = f"https://docs.google.com/document/d/{_id}/export?format=docx" if '/document/d/' in ruta else f"https://drive.google.com/uc?export=download&id={_id}"
+            _r = requests.get(_url, timeout=60)
+            if _r.status_code != 200 or not _r.content.startswith(b'PK'):
+                return {}, [], "No se pudo descargar el documento. Verificá que el acceso sea 'Cualquier persona con el enlace'."
+            open(tmp, 'wb').write(_r.content)
+        else:
+            shutil.copyfile(ruta, tmp)
+        z = zipfile.ZipFile(tmp)
+        doc = ET.fromstring(z.read('word/document.xml'))
+        rels = {r.get('Id'): r.get('Target') for r in ET.fromstring(z.read('word/_rels/document.xml.rels'))}
+        estilos = {}
+        if 'word/styles.xml' in z.namelist():
+            for st in ET.fromstring(z.read('word/styles.xml')).iter(W + 'style'):
+                n = st.find(W + 'name')
+                if n is not None: estilos[st.get(W + 'styleId')] = (n.get(W + 'val') or '').lower()
+        z.close()
+    except Exception as e:
+        return {}, [], f"No se pudo leer el Word: {e}"
+    kw = WORD_CLIENTES_TITULO.get(cliente_nombre, _norm_word(cliente_nombre))
+    secs = [(s['id'], _norm_word(s['nombre'])) for s in secciones if not s.get('es_separador')]
+    res, sin_sec = {}, []
+    en_cliente, sec_act = False, None
+    for p in doc.iter(W + 'p'):
+        ps = p.find(W + 'pPr/' + W + 'pStyle')
+        estilo = estilos.get(ps.get(W + 'val'), (ps.get(W + 'val') or '').lower()) if ps is not None else ''
+        texto = ''.join(t.text or '' for t in p.iter(W + 't')).strip()
+        if estilo in ('title', 'titulo', 'título'):
+            en_cliente = kw in _norm_word(texto); sec_act = None
+            continue
+        if not en_cliente: continue
+        links = []
+        for h in p.iter(W + 'hyperlink'):
+            rid = h.get(R + 'id')
+            u = rels.get(rid, '') if rid else ''
+            if u.lower().startswith('http') and not any(d in u.lower() for d in WORD_DOMINIOS_IGNORADOS): links.append(u.strip())
+        if links:
+            if sec_act: res.setdefault(sec_act, []).extend(links)
+            else: sin_sec.extend(links)
+            continue
+        n = _norm_word(texto)
+        for a, b in WORD_ALIAS_SECCION.items():
+            if n.startswith(a): n = b + ' ' + n
+        mejor, mejor_len = None, 0
+        for sid, nom in secs:
+            if n.startswith(nom) or (len(nom) >= 6 and n.startswith(nom[:6].strip())):
+                if len(nom) > mejor_len: mejor, mejor_len = sid, len(nom)
+        if mejor: sec_act = mejor
+    for k in res:
+        vistos = set(); res[k] = [u for u in res[k] if not (u in vistos or vistos.add(u))]
+    return res, sin_sec, None
+
+# v5.86: velocidad: resolver links de Google News sin navegador, lectura previa con requests y bloqueo de recursos pesados
+_CACHE_GNEWS = {}
+_UA_RAPIDO = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", "Accept-Language": "es-AR,es;q=0.9"}
+_BLOQUEAR_RECURSOS = ("image", "media", "font")
+_BLOQUEAR_DOMINIOS = ("doubleclick.net", "googlesyndication.com", "google-analytics.com", "googletagmanager.com", "facebook.net", "connect.facebook.com", "hotjar.com", "taboola.com", "outbrain.com", "adsystem.com")
+
+def bloquear_recursos_pesados(route):
+    try:
+        req = route.request
+        if req.resource_type in _BLOQUEAR_RECURSOS or any(d in req.url for d in _BLOQUEAR_DOMINIOS):
+            return route.abort()
+        return route.continue_()
+    except Exception:
+        try: route.continue_()
+        except Exception: pass
+
+def resolver_google_news(url):
+    """Devuelve la URL real de un link de Google News sin abrir el navegador (o None si no se pudo)."""
+    if url in _CACHE_GNEWS: return _CACHE_GNEWS[url]
+    res = None
+    try:
+        import base64
+        m = re.search(r'/(?:rss/)?articles/([^?/]+)', url)
+        if m and 'news.google.' in url:
+            gid = m.group(1)
+            b = base64.urlsafe_b64decode(gid + '=' * (-len(gid) % 4))
+            if b.startswith(b'\x08\x13\x22'): b = b[3:]
+            if b.endswith(b'\xd2\x01\x00'): b = b[:-3]
+            ln = b[0]
+            txt = (b[2:ln + 1] if ln >= 0x80 else b[1:ln + 1]).decode('utf-8', 'ignore')
+            if txt.startswith('http'):
+                res = txt
+            elif txt.startswith('AU_yqL'):
+                r = None
+                for u_art in (f"https://news.google.com/articles/{gid}", f"https://news.google.com/rss/articles/{gid}"):
+                    r = requests.get(u_art, headers=_UA_RAPIDO, timeout=6)
+                    d = BeautifulSoup(r.text, 'html.parser').select_one('c-wiz > div[jscontroller]')
+                    if d and d.get('data-n-a-sg'): break
+                    d = None
+                if d:
+                    req_in = ["Fbv4je", f'["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],"{d.get("data-n-a-id")}",{d.get("data-n-a-ts")},"{d.get("data-n-a-sg")}"]']
+                    payload = "f.req=" + urllib.parse.quote(json.dumps([[req_in]]))
+                    rp = requests.post("https://news.google.com/_/DotsSplashUi/data/batchexecute", headers={"content-type": "application/x-www-form-urlencoded;charset=UTF-8", "User-Agent": _UA_RAPIDO["User-Agent"]}, data=payload, timeout=8)
+                    cand = json.loads(json.loads(rp.text.split("\n\n")[1])[:-2][0][2])[1]
+                    if str(cand).startswith('http'): res = cand
+    except Exception:
+        res = None
+    _CACHE_GNEWS[url] = res
+    return res
+
+def navegar_rapido(page, link):
+    """Intenta cargar la nota con una descarga simple + página sin recursos. Devuelve True si usó la vía rápida; si no, navega normal."""
+    try:
+        destino = resolver_google_news(link) if 'news.google.' in link else link
+        if destino and destino.startswith('http'):
+            r = requests.get(destino, headers=_UA_RAPIDO, timeout=8)
+            ct = r.headers.get('content-type', '')
+            if r.status_code == 200 and 'html' in ct.lower():
+                html = r.text
+                texto_p = ' '.join(p.get_text(' ', strip=True) for p in BeautifulSoup(html, 'html.parser').find_all('p'))
+                if len(texto_p) >= 700:
+                    objetivo = destino.split('#')[0].rstrip('/')
+                    def _h(route):
+                        rq = route.request
+                        if rq.resource_type == 'document' and rq.url.split('#')[0].rstrip('/') == objetivo:
+                            return route.fulfill(status=200, content_type='text/html; charset=utf-8', body=html)
+                        return route.abort()
+                    page.route("**/*", _h)
+                    page.goto(destino, timeout=15000, wait_until="domcontentloaded")
+                    return True
+    except Exception:
+        pass
+    try: page.unroute("**/*")
+    except Exception: pass
+    page.goto(link, timeout=15000, wait_until="domcontentloaded")
+    return False
+
 def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, urls_resueltas_global, historial_previo, titulos_resueltos_global, start_time_seccion, solo_manuales=False, contexto_ia=""):
     items = []
     evaluaciones_auditoria = []
@@ -1395,7 +1640,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         link_norm = str(ng['link']).strip().lower()
         u_clean = url_limpia_para_duplicados(ng['link'])
 
-        if link_norm and link_norm in historial_previo:
+        if False:  # v5.58: el historial NO afecta a notas manuales (gráficas)
             logger(f"    📜 EXCLUIDA [Gráfica] por historial anterior del cliente: {m_limpio[:20]} - {ng['titulo'][:30]}...")
             if True:
                 evaluaciones_auditoria.append({
@@ -1427,7 +1672,23 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         logger(f"    ✓ SUMADA [Gráfica]: {m_limpio[:20]} - {ng['titulo'][:30]}...")
 
     organicas_ok = 0
+    _feed_prev = None
+    _excl_sec = set()
+    _aud_idx = 0
+    _term_act = ''
+    _n_busq = max(1, sum(1 for _k in FEED_TERMINOS if str(_k).startswith(f"google_{sec_id}_")))
+    _tope_busqueda = max(MAX_NOTAS_POR_BUSQUEDA, -(-int(limite_notas) // _n_busq))
+    _es_google = False
+    _aprob_term = {}
+    _excl_claves = set(); _idx_ev = 0  # v5.75: notas ya excluidas en otra búsqueda de esta sección
     organicas_por_feed = {}
+    notas_por_medio = {}
+    def _cupo_ok(nota):  # v5.58: Booking Turismo: máximo 5 notas por sitio (consume cupo si hay lugar)
+        if sec_id != 'booking_tema_3': return True
+        k_ = str(nota.get('medio', '')).strip().lower()
+        if notas_por_medio.get(k_, 0) >= 5: return False
+        notas_por_medio[k_] = notas_por_medio.get(k_, 0) + 1
+        return True
     vistos_urls_seccion = set()
     vistos_titulos_seccion = set()
     repetidas_seccion = 0
@@ -1454,24 +1715,48 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         if getattr(state, 'stop_req', False): break  # v5.50
         # ----------------------------------------------------------
 
-        if time.time() - start_time_seccion > 120:
+        if time.time() - start_time_seccion > 180:  # v5.72: límite por sección de 3 minutos
             logger(f"    ⏳ ¡Tiempo límite alcanzado! Interrumpiendo búsqueda de nuevas notas en esta sección.")
             break
 
         item = item_tuple[0]
         origen = item_tuple[1]
         feed_id = item_tuple[2]
+        if origen != 'Manual' and feed_id != _feed_prev:  # v5.67: indicador de búsqueda actual y aprobadas x/límite
+            _feed_prev = feed_id
+            _term_act = FEED_TERMINOS.get(feed_id, str(feed_id))
+            _es_google = (origen == 'Google News')  # v5.77: solo se informa en búsquedas de Google
+            if _es_google:
+                logger(f"§RSS|{_term_act}")
+                logger(f"  🔎 Extrayendo de: [{_term_act}] | Aprobadas en esta búsqueda: {_aprob_term.get(_term_act, 0)}")
         
+        if origen != 'Manual':  # v5.75: si ya se excluyó en otra búsqueda de la misma sección, se omite directo
+            for _ev in evaluaciones_auditoria[_idx_ev:]:
+                if str(_ev.get('estado', '')).startswith('EXCLUIDA'):
+                    _excl_claves.add(str(_ev.get('link', '')).strip().lower())
+            _idx_ev = len(evaluaciones_auditoria)
+            try:
+                _lk = item.link.text.strip().lower()
+            except Exception:
+                _lk = ''
+            if _lk and _lk in _excl_claves:
+                continue
+
         if origen != 'Manual' and organicas_ok >= limite_notas:
             logger(f"    ⏹️ ¡Límite global de {limite_notas} notas alcanzado! Se interrumpe la búsqueda en esta sección.")
             break
             
-        if cliente_nombre == "BMS" and origen == 'Google News':
-            if organicas_por_feed.get(feed_id, 0) >= 3:
+        if origen == 'Google News' and cliente_nombre not in CLIENTES_SIN_TOPE_BUSQUEDA and sec_id not in SECCIONES_SIN_TOPE_BUSQUEDA:  # v5.80: tope por búsqueda = max(3, límite de la sección / cantidad de búsquedas)
+            if _aprob_term.get(FEED_TERMINOS.get(feed_id, feed_id), 0) >= _tope_busqueda:
                 continue
 
         link_orig = item.link.text
         link_norm = link_orig.strip().lower()
+        for _ev in evaluaciones_auditoria[_aud_idx:]:  # v5.75: nota ya excluida en otra búsqueda de esta sección -> se omite directo
+            if str(_ev.get('estado', '')).startswith('EXCLUIDA'): _excl_sec.add(str(_ev.get('link', '')).strip().lower())
+        _aud_idx = len(evaluaciones_auditoria)
+        if origen != 'Manual' and link_norm in _excl_sec:
+            continue
         titulo_bruto = item.title.text if item.title else "Sin Título"
         desc_rss = item.description.text if hasattr(item, 'description') and item.description else ""
         fecha_rss_raw = item.pubDate.text if hasattr(item, 'pubDate') and item.pubDate else ""
@@ -1503,7 +1788,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             "bajada_real": desc_rss, "oracion_clave": desc_rss, "resumen_rss": desc_rss, "origen": origen
         }
 
-        if link_norm and link_norm in historial_previo:
+        if origen not in ('Manual', 'Manual Online') and link_norm and link_norm in historial_previo:  # v5.58: solo afecta a notas de feed/Google
             logger(f"    📜 EXCLUIDA por historial anterior del cliente: {medio[:20]} - {titulo[:30]}...")
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
             if True:
@@ -1543,6 +1828,15 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
             _, tier_test, _ = buscar_metricas_medio(df_medios, link_orig, medio)
             es_top_tier = True
 
+            if sec_id in IDS_EXCLUIR_TIER3 and str(tier_test).lower().replace('tier', '').strip() in ('3', '3.0'):  # v5.66
+                logger(f"    🚫 EXCLUIDA por Tier 3: {medio[:20]} - {titulo[:30]}...")
+                evaluaciones_auditoria.append({
+                    "medio": medio, "titulo": titulo, "link": link_orig,
+                    "estado": "EXCLUIDA_TIER_3", "motivo": "Tier 3", "es_ia": False,
+                    "origen_fuente": origen, "bloque_data": bloque_pre
+                })
+                continue
+
             motivo_extr = motivo_portal_extranjero(link_orig, medio, texto_pre, url_fuente)
             if motivo_extr:
                 logger(f"    🌎 EXCLUIDA por portal extranjero [{motivo_extr}]: {medio[:20]} ({link_orig})")
@@ -1581,8 +1875,8 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         bajada, oracion, fecha_web, link_destino = "", "", "", link_orig
         
         try:
-            page.goto(link_orig, timeout=15000, wait_until="domcontentloaded")
-            page.wait_for_timeout(1200)
+            _rapido = navegar_rapido(page, link_orig)  # v5.86
+            page.wait_for_timeout(250 if _rapido else 1200)
             if page.url and re.search(r'//(news|consent)\.google\.', page.url):
                 try:
                     page.wait_for_url(lambda u: not re.search(r'//(news|consent)\.google\.', u), timeout=5000)
@@ -1826,7 +2120,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                                         "origen_fuente": item_ia['origen'], "bloque_data": item_ia['nota_info']
                                     })
                             else:
-                                if organicas_ok < limite_notas:
+                                if organicas_ok < limite_notas and _cupo_ok(item_ia['nota_info']):
                                     noticias_procesadas.append(item_ia['nota_info'])
                                     if item_ia['link_norm']: links_sumados_global.add(item_ia['link_norm'])
                                     
@@ -1843,6 +2137,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                                     })
                                     logger(f"    ✓ SUMADA [{item_ia['origen']}]: {item_ia['medio'][:20]} - {item_ia['titulo'][:30]}...")
                                     organicas_ok += 1
+                                    _aprob_term[_term_act] = _aprob_term.get(_term_act, 0) + 1; (logger(f"    📊 [{_term_act}] aprobadas en esta búsqueda: {_aprob_term[_term_act]}") if _es_google else None); logger(f"§PROG|{nombre_seccion}|{organicas_ok}|{limite_notas}")  # v5.69
                                 else:
                                     logger(f"    ⏹️ OMITIDA por límite alcanzado: {item_ia['medio'][:20]}...")
                                     
@@ -1851,6 +2146,9 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                     # --------------------------------------------------
                     continue 
                     
+        if origen != 'Manual' and not _cupo_ok(bloque_noticia):
+            logger(f"    ⏹️ OMITIDA por tope de 5 notas del sitio: {medio[:20]}...")
+            continue
         noticias_procesadas.append(bloque_noticia)
         if link_norm: links_sumados_global.add(link_norm)
         urls_resueltas_global.add(u_clean)
@@ -1867,6 +2165,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         
         if origen != 'Manual': 
             organicas_ok += 1
+            _aprob_term[_term_act] = _aprob_term.get(_term_act, 0) + 1; (logger(f"    📊 [{_term_act}] aprobadas en esta búsqueda: {_aprob_term[_term_act]}") if _es_google else None); logger(f"§PROG|{nombre_seccion}|{organicas_ok}|{limite_notas}")  # v5.69
             organicas_por_feed[feed_id] = organicas_por_feed.get(feed_id, 0) + 1
 
     if repetidas_seccion:
@@ -1925,7 +2224,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                             "origen_fuente": item['origen'], "bloque_data": item['nota_info']
                         })
                 else:
-                    if organicas_ok < limite_notas:
+                    if organicas_ok < limite_notas and _cupo_ok(item['nota_info']):
                         noticias_procesadas.append(item['nota_info'])
                         if item['link_norm']: links_sumados_global.add(item['link_norm'])
                         
@@ -1942,6 +2241,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                         })
                         logger(f"    ✓ SUMADA [{item['origen']}]: {item['medio'][:20]} - {item['titulo'][:30]}...")
                         organicas_ok += 1
+                        _aprob_term[_term_act] = _aprob_term.get(_term_act, 0) + 1; (logger(f"    📊 [{_term_act}] aprobadas en esta búsqueda: {_aprob_term[_term_act]}") if _es_google else None); logger(f"§PROG|{nombre_seccion}|{organicas_ok}|{limite_notas}")  # v5.69
                     else:
                         logger(f"    ⏹️ OMITIDA por límite alcanzado post-IA: {item['medio'][:20]}...")
 
@@ -1978,7 +2278,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         
         if sec_id == 'booking_tema_1':
             info_metricas = f" <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>Ad. Value: $ {noti['ad_value']}</strong> -"
-        elif sec_id in IDS_SINTESIS and sec_id not in ['mars_competencia', 'bms_tema_4', 'booking_tema_2', 'mailboxes_tema_2']:
+        elif sec_id in IDS_SINTESIS and sec_id not in IDS_SIN_METRICAS:
             info_metricas = f" <span style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>(Alcance: {noti['alcance']} Tier: {noti['tier']})</span> <strong style='color: {color_tema}; font-size: 14px; font-family: Tahoma, sans-serif;'>Ad. Value: $ {noti['ad_value']}</strong> -"
         else:
             info_metricas = " -"
@@ -2120,6 +2420,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled", "--no-sandbox"])
         context = browser.new_context(viewport={"width": 1920, "height": 1080}, user_agent="Mozilla/5.0")
+        context.route("**/*", bloquear_recursos_pesados)  # v5.86: no descarga imágenes, videos, fuentes ni trackers
         
         for sec in estructura:
             # --- NUEVO: CHECK DE PAUSA ENTRE SECCIONES ---
@@ -2174,12 +2475,21 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
                     try:
                         req = urllib.request.urlopen(urllib.request.Request(url_busqueda, headers={'User-Agent': 'Mozilla/5.0'}))
                         feed_id_google = f"google_{sec['id']}_{i}"
+                        FEED_TERMINOS[feed_id_google] = termino_busqueda
                         
                         items_extraidos = BeautifulSoup(req.read(), "xml").find_all('item')[:30]
                         
                         # --- NUEVO: Avisar cuántas notas sacó de este feed ---
                         if items_extraidos:
                             logger(f"    ✅ Se extrajeron {len(items_extraidos)} notas en bruto de este feed.")
+                            def _rank_tier(_it):  # v5.66: dentro de cada búsqueda, primero tier 1 y 2, luego sin tier, al final tier 3
+                                try:
+                                    _m = _it.source.text if _it.source else ''
+                                    _t = str(buscar_metricas_medio(df_medios, '', _m)[1]).lower().replace('tier', '').strip()
+                                    return 0 if _t in ('1', '2', '1.0', '2.0') else (2 if _t in ('3', '3.0') else 1)
+                                except Exception:
+                                    return 1
+                            items_extraidos = sorted(items_extraidos, key=_rank_tier)
                             for it in items_extraidos: 
                                 items_rss_seccion.append((it, 'Google News', feed_id_google))
                         else:
@@ -2200,7 +2510,7 @@ def orquestador_principal(links_manuales, notas_graficas, configuracion_cliente,
             notas_seccion, eval_sec = procesar_seccion(
                 context, sec['id'], sec['nombre'], items_rss_totales, 
                 links_manuales.get(sec['id'], []), notas_graficas.get(sec['id'], []),
-                sec['keywords'], sec.get('exclusiones', []), color, sec['limite'], logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, urls_resueltas_global, historial_previo, titulos_resueltos_global, start_time_seccion, solo_manuales=solo_manuales, contexto_ia=sec.get('contexto_ia', "")
+                sec['keywords'], sec.get('exclusiones', []), color, limite_ajustado(sec['limite'], timeframe_google), logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, urls_resueltas_global, historial_previo, titulos_resueltos_global, start_time_seccion, solo_manuales=solo_manuales, contexto_ia=sec.get('contexto_ia', "")
             )
 
             img_url = transformar_link_drive(sec.get('img_url', ''))
@@ -2564,6 +2874,36 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 100; }
         .modal-frame { background: white; width: 80%; height: 80%; border-radius: 12px; display: flex; flex-direction: column; overflow:hidden;}
         #iframe-preview { flex: 1; border: none; width: 100%; }
+    
+        /* v5.82: mejoras visuales del editor */
+        html { scroll-behavior: smooth; }
+        ::selection { background: color-mix(in srgb, var(--tema_color) 25%, white); }
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--tema_color) 35%, #cbd5e1); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+        .seccion { animation: fadeUp .35s ease both; transition: box-shadow .25s ease, transform .25s ease; border-radius: 16px; }
+        .seccion:hover { box-shadow: 0 14px 34px rgba(0,0,0,0.10); }
+        .seccion-header { font-style: normal !important; font-weight: 700 !important; letter-spacing: .3px; font-size: 15px; padding: 15px 22px !important; }
+        .bloque-nota { border-radius: 12px !important; border-left: 4px solid color-mix(in srgb, var(--tema_color) 70%, white) !important; transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease; }
+        .bloque-nota:hover { box-shadow: 0 8px 22px rgba(0,0,0,0.09); transform: translateY(-2px); border-left-color: var(--tema_color) !important; }
+        .btn { transition: transform .15s ease, box-shadow .15s ease, filter .15s ease, background .15s ease; }
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.14); }
+        .btn:active { transform: translateY(0); box-shadow: none; }
+        .btn-primary:hover { filter: brightness(1.08); }
+        .btn-side { border-radius: 10px !important; }
+        .btn-side:hover { filter: brightness(0.96); transform: translateX(2px); }
+        .ql-toolbar.ql-snow { position: sticky; top: 0; z-index: 20; background: rgba(255,255,255,0.96); backdrop-filter: blur(8px); border-radius: 10px 10px 0 0; }
+        .ql-container.ql-snow:focus-within, .sintesis-quill-box .ql-container.ql-snow:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--tema_color) 30%, transparent); border-radius: 0 0 10px 10px; }
+        .modal-overlay { backdrop-filter: blur(6px); animation: fadeUp .2s ease both; }
+        .modal-frame { border-radius: 16px !important; box-shadow: 0 24px 60px rgba(0,0,0,0.35) !important; overflow: hidden; }
+        @media (max-width: 640px) {
+            .sidebar-wrapper { width: 52px; padding: 14px 6px; }
+            .sidebar-wrapper:hover { width: 230px; }
+            .contenedor-main { width: calc(100% - 52px); margin-left: 52px; }
+            .contenedor { padding: 20px 10px 60px; }
+            .seccion-header { padding: 12px 14px !important; font-size: 14px; }
+        }
     </style>
 </head>
 <body>
@@ -2579,6 +2919,10 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
         <button class="btn btn-primary btn-side" onclick="descargarReporteFinal()">
             <span class="btn-icon-symbol">⬇️</span>
             <span class="sidebar-text">Descargar Reporte</span>
+        </button>
+        <button class="btn btn-side" onclick="copiarAlPortapapeles()" style="background:#ecfdf5; color:#065f46;">
+            <span class="btn-icon-symbol">📋</span>
+            <span class="sidebar-text">Copiar al portapapeles</span>
         </button>
         <button class="btn btn-side" onclick="previewMailFinal()" style="background:#eef; color:#333;">
             <span class="btn-icon-symbol">👁</span>
@@ -3191,6 +3535,49 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
             a.click();
         }
         
+        // v5.83: auto-scroll de la página mientras se arrastra una nota cerca del borde superior/inferior
+        (function(){
+            let timer = null, yAct = 0;
+            document.addEventListener('dragstart', function(e){
+                if (timer) return;
+                timer = setInterval(function(){
+                    const zona = 140, h = window.innerHeight; let v = 0;
+                    if (yAct < zona) v = -Math.ceil((zona - yAct) / 5);
+                    else if (yAct > h - zona) v = Math.ceil((yAct - (h - zona)) / 5);
+                    if (v) window.scrollBy(0, Math.max(-40, Math.min(40, v)));
+                }, 16);
+            });
+            document.addEventListener('dragover', function(e){ yAct = e.clientY; });
+            function parar(){ if (timer) { clearInterval(timer); timer = null; } }
+            document.addEventListener('dragend', parar);
+            document.addEventListener('drop', parar);
+        })();
+
+        async function copiarAlPortapapeles(){  // v5.64: copia solo la tabla del reporte (sin el bloque contenedor gris)
+            let html = generarHtmlFinal();
+            try {
+                const dp = new DOMParser().parseFromString(html, 'text/html');
+                const inner = dp.querySelector('body > table > tbody > tr > td > table');
+                if (inner) html = '<html><head><meta charset="utf-8">' + dp.head.innerHTML + '</head><body>' + inner.outerHTML + '</body></html>';
+            } catch(e) {}
+            try {
+                await navigator.clipboard.write([new ClipboardItem({
+                    'text/html': new Blob([html], {type:'text/html'}),
+                    'text/plain': new Blob([html.replace(/<[^>]+>/g,' ')], {type:'text/plain'})
+                })]);
+                alert('✅ Reporte copiado. Pegalo en el mail.');
+            } catch(e) {
+                const d = document.createElement('div');
+                d.contentEditable = 'true'; d.style.cssText = 'position:fixed;left:-9999px;top:0;';
+                d.innerHTML = html; document.body.appendChild(d);
+                const r = document.createRange(); r.selectNodeContents(d);
+                const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+                const ok = document.execCommand('copy');
+                sel.removeAllRanges(); document.body.removeChild(d);
+                alert(ok ? '✅ Reporte copiado. Pegalo en el mail.' : '❌ No se pudo copiar.');
+            }
+        }
+
         function previewMailFinal(){
             document.getElementById('iframe-preview').srcdoc = generarHtmlFinal();
             document.getElementById('modal-preview').style.display = 'flex';
@@ -3216,7 +3603,8 @@ def generar_html_editor(banner_url, sec_data, color, cliente_nombre):
 </html>'''
     plantilla = plantilla.replace("__COLOR_CLIENTE__", color)
     plantilla = plantilla.replace("__BANNER_PRINCIPAL_JSON__", json.dumps(banner_limpio)).replace("__DATA_INICIAL_JSON__", json.dumps(sec_data))
-    plantilla = plantilla.replace("__GROQ_API_KEY__", GROQ_API_KEY).replace("__GROQ_API_KEY_2__", GROQ_API_KEY_2)
+    _ks = keys_para_cliente(cliente_nombre)  # v5.57
+    plantilla = plantilla.replace("__GROQ_API_KEY__", _ks[0]).replace("__GROQ_API_KEY_2__", _ks[1] if len(_ks) > 1 else _ks[0])
     plantilla = plantilla.replace("__REPORT_ID__", report_id)
     plantilla = plantilla.replace("__CLIENTE_NOMBRE__", cliente_nombre)
     return plantilla
@@ -3265,9 +3653,11 @@ async def index():
             def attempt_login():
                 usr = user_input.value
                 pwd = pass_input.value
-                if usr in CREDENCIALES and CREDENCIALES[usr] == pwd:
+                _us = _cargar_usuarios().get(usr)
+                if _us and _verificar_pw(pwd, _us.get('hash', '')):
                     app.storage.tab['authenticated'] = True
                     app.storage.tab['username'] = usr
+                    app.storage.tab['rol'] = _us.get('rol', 'usuario')
                     registrar_actividad(usr, "Inicio de sesión", "Acceso exitoso al sistema")
                     ui.navigate.reload()
                 else:
@@ -3283,7 +3673,9 @@ async def index():
             ui.label('Ketchum Argentina').classes('text-xl font-extrabold text-white').style('font-family: "Inter", "Segoe UI", sans-serif; letter-spacing: 1.2px; text-transform: uppercase;')
 
     with ui.header().classes('justify-between items-center bg-[#0F172A] shadow-md px-6 py-3'):
-        header_title()
+        with ui.row().classes('items-center gap-2'):
+            ui.button(icon='menu', on_click=lambda: drawer_clientes.toggle()).props('flat round dense color=white')  # v5.61: reabrir/plegar menú lateral
+            header_title()
             
         def logout():
             registrar_actividad(app.storage.tab.get('username', 'usuario'), "Cierre de sesión", "Salió del sistema")
@@ -3314,22 +3706,15 @@ async def index():
     # ====================================================================
     # MENÚ LATERAL Y MÓDULO DE WEB SCRAPING
     # ====================================================================
-    with ui.left_drawer(value=True).classes('bg-[#f8f9fa] border-r border-gray-200 p-6'):
+    with ui.left_drawer(value=True).classes('bg-[#f8f9fa] border-r border-gray-200 p-6') as drawer_clientes:
         
-        if app.storage.tab.get('username') == 'admin':
+        if app.storage.tab.get('rol') == 'admin':
             with ui.card().classes('w-full p-4 mb-6 border border-amber-300 bg-amber-50 shadow-sm rounded-xl'):
                 ui.label('🛠 MODO DIOS (Admin)').classes('text-xs font-bold text-amber-800 tracking-wider mb-2')
                 
                 ui.button('📝 Reporte SOLO MANUALES', on_click=lambda: procesar_reporte(solo_manuales=True)).props('dense outline text-color=amber-9').classes('w-full mb-2 font-bold')
                 ui.button('⚡ Prueba Rápida (Solo Banners)', on_click=lambda: procesar_reporte(solo_banners=True)).props('dense color=amber-8').classes('w-full font-bold text-white')
                 
-                with ui.expansion('🕵️‍♂️ Ver Log Actividad').classes('w-full mt-2 text-xs font-bold'):
-                    if os.path.exists("registro_uso.csv"):
-                        with open("registro_uso.csv", "r", encoding="utf-8") as f:
-                            contenido_log = f.read()
-                        ui.textarea(value=contenido_log).props('readonly').classes('w-full text-xs font-mono')
-                    else:
-                        ui.label('Aún no hay actividad registrada.').classes('text-xs text-gray-500')
 
             ui.separator().classes('mb-6')
 
@@ -3491,7 +3876,7 @@ async def index():
                                                                 info_metricas = " -"
                                                                 if s_edit['id'] == 'booking_tema_1':
                                                                     info_metricas = f" <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
-                                                                elif s_edit['id'] in IDS_SINTESIS and s_edit['id'] not in ['mars_competencia', 'bms_tema_4', 'booking_tema_2', 'mailboxes_tema_2']:
+                                                                elif s_edit['id'] in IDS_SINTESIS and s_edit['id'] not in IDS_SIN_METRICAS:
                                                                     info_metricas = f" <span style='color: {cfg['color_primario']}; font-size: 14px;'>(Alcance: {b.get('alcance', '?')} Tier: {b.get('tier', '?')})</span> <strong style='color: {cfg['color_primario']}; font-size: 14px;'>Ad. Value: $ {b.get('ad_value', '?')}</strong> -"
                                                             
                                                                 html_indiv = f'''<p style="margin-top: 0; margin-bottom: 4px; color: #000000;"><strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('medio', '')}</strong>{tipo_html}<strong style="color: {cfg['color_primario']}; font-size: 14px;">{b.get('fecha', '')}</strong>{info_metricas} <a href="{b.get('link', '#')}" target="_blank" rel="noopener noreferrer" style="color: {cfg['color_primario']}; text-decoration: none; font-size: 14px; font-weight: normal;">{b.get('titulo', '')}</a></p>{bloque_texto}'''
@@ -3544,6 +3929,8 @@ async def index():
 
         state.timer_label.classes(remove='hidden')
         state.status_chip.classes(remove='hidden')
+        if state.progress_label: state.progress_label.classes(remove='hidden'); state.progress_label.set_text('')
+        if state.rss_label: state.rss_label.classes(remove='hidden'); state.rss_label.set_text('')
         state.status_chip.set_text("📍 Iniciando motor de búsqueda...")
         state.stop_req = False  # v5.50
         state.log_box.classes(remove='hidden')
@@ -3595,6 +3982,15 @@ async def index():
         def flush_logs():
             while not log_queue.empty():
                 msg = log_queue.get()
+                if str(msg).startswith('§RSS|'):  # v5.73
+                    if state.rss_label: state.rss_label.set_text(f"📡 RSS actual: {str(msg)[5:][:70]}")
+                    continue
+                if str(msg).startswith('§PROG|'):  # v5.68: indicador fuera del log
+                    try:
+                        _, _t, _ok, _lim = str(msg).split('|', 3)
+                        if state.progress_label: state.progress_label.set_text(f"✅ {_t[:40]}: aprobadas {_ok}/{_lim}")
+                    except Exception: pass
+                    continue
                 if state.log_container:
                     state.log_container.push(msg)
                 if "🔎 ANALIZANDO SECCIÓN:" in msg:
@@ -3605,7 +4001,7 @@ async def index():
                 else:
                     continue
                 if state.status_chip:
-                    state.status_chip.set_text(f"📍 Sección actual: {cont_sec['nombre']} · ✅ {cont_sec['sumadas']} sumadas")
+                    state.status_chip.set_text(f"📍 Sección actual: {cont_sec['nombre']}")
 
         ui_timer = ui.timer(0.3, flush_logs)
 
@@ -3686,6 +4082,33 @@ async def index():
                         else:
                             ui.label('Sin gacetilla activa').classes('text-xs font-semibold text-gray-400 italic')
 
+            # v5.84: cargar links desde el Word compartido
+            with ui.card().classes('w-full mb-6 p-4 border shadow-sm').style('border-radius: 12px;'):
+                ui.label('📄 Links del Word compartido').classes('font-bold text-gray-700')
+                with ui.row().classes('w-full items-center gap-3'):
+                    inp_word = ui.input('Ruta del Word (.docx) o link de Google Docs', value=app.storage.general.get('ruta_word', '')).classes('flex-grow')
+                    inp_word.on('blur', lambda e: app.storage.general.__setitem__('ruta_word', (inp_word.value or '').strip().strip('"')))
+                    def cargar_word():
+                        ruta = (inp_word.value or '').strip().strip('"')
+                        app.storage.general['ruta_word'] = ruta
+                        res, sin_sec, err = leer_links_word(ruta, state.cliente, config['secciones'])
+                        if err:
+                            ui.notify(err, type='negative', close_button=True); return
+                        total = 0; partes = []
+                        for sec_w in config['secciones']:
+                            if sec_w.get('es_separador'): continue
+                            nuevos = res.get(sec_w['id'], [])
+                            if not nuevos: continue
+                            previos = [u for u in re.split(r'[,\n\s]+', state.links_manuales.get(sec_w['id'], '')) if u.startswith('http')]
+                            agregar = [u for u in nuevos if u not in previos]
+                            state.links_manuales[sec_w['id']] = '\n'.join(previos + agregar)
+                            total += len(agregar); partes.append(f"{sec_w['nombre']}: {len(nuevos)}")
+                        msg = f"✅ {total} link(s) cargados desde el Word. " + (' | '.join(partes) if partes else 'No hay links para este cliente.')
+                        ui.notify(msg, type='positive', close_button=True, multi_line=True, timeout=0)
+                        if sin_sec:
+                            ui.notify(f"⚠️ {len(sin_sec)} link(s) del Word están bajo el cliente pero sin una sección reconocida (no se cargaron).", type='warning', close_button=True, multi_line=True, timeout=0)
+                    ui.button('Cargar links del Word', on_click=cargar_word).props('color=primary')
+
             for sec in config['secciones']:
                 if sec.get('es_separador', False): continue
                 
@@ -3721,7 +4144,10 @@ async def index():
             
             state.timer_label = ui.label('⏱️ Tiempo transcurrido: 00:00').classes('font-bold text-gray-700 mb-2 hidden')
             
-            state.status_chip = ui.chip('📍 Esperando inicio...', icon='radar').props('color=dark text-color=white').classes('bg-[#0F172A] text-white font-bold mb-3 shadow-md hidden')
+            with ui.row().classes('items-center gap-3 mb-3'):
+                state.status_chip = ui.chip('📍 Esperando inicio...', icon='radar').props('color=dark text-color=white').classes('bg-[#0F172A] text-white font-bold shadow-md hidden')
+                state.progress_label = ui.label('').classes('font-bold text-gray-700 hidden')  # v5.68: búsqueda actual + aprobadas x/límite
+                state.rss_label = ui.label('').classes('font-bold text-gray-700 hidden')  # v5.73: RSS en curso (a la derecha)
             
             state.log_box = ui.column().classes('w-full hidden')
             state.log_container = MonitorConsola(state.log_box)
@@ -3757,4 +4183,4 @@ import multiprocessing
 
 if __name__ in {"__main__", "__mp_main__"}:
     multiprocessing.freeze_support()
-    ui.run(title="Generador Clipping", port=8080, language="es", storage_secret="clipping2026_secret_key", reload=False)
+    ui.run(title="Generador Clipping", port=int(os.environ.get("PUERTO", 8080)), language="es", storage_secret=_storage_secret(), reload=False)

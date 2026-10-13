@@ -3770,7 +3770,7 @@ async def index():
     # PANTALLA DE LOGIN
     if not app.storage.tab.get('authenticated', False):
         with ui.card().classes('absolute-center items-center p-8 shadow-xl rounded-2xl w-96'):
-            ui.label('Hecho por Santiago Allende de Ketchum Arg.').classes('text-[10px] text-gray-400 mb-2')
+            ui.label('Hecho por Santiago Allende').classes('text-[10px] text-gray-400 mb-2')
             ui.label('🔒 Acceso Restringido').classes('text-2xl font-bold text-[#0F172A] mb-2')
             ui.label('Ingresá tus credenciales').classes('text-gray-500 mb-6')
             
@@ -3827,7 +3827,7 @@ async def index():
             dlg.open()
         ui.timer(2.0, chequear_actualizacion, once=True)
         with ui.row().classes('items-center gap-4'):
-            ui.label('Hecho por Santiago Allende de Ketchum Arg.').classes('text-slate-400 text-[10px] italic')
+            ui.label('Hecho por Santiago Allende').classes('text-slate-400 text-[10px] italic')
             ui.label(f'v{APP_VERSION}').classes('text-slate-300 italic text-sm font-bold bg-slate-800 px-2 rounded')
             ui.button('🚪 Cerrar Sesión', on_click=logout).props('flat text-color=white').classes('font-bold border border-slate-600 rounded px-3 ml-2')
 

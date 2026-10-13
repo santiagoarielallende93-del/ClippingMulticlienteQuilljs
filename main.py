@@ -28,9 +28,11 @@ import subprocess
 import threading
 
 # ====================================================================
+# Hecho por Santiago Allende de Ketchum
+# ====================================================================
 # CONFIGURACIÓN Y VERSIÓN
 # ====================================================================
-APP_VERSION = "2.8"
+APP_VERSION = "3.0"
 URL_VERSION_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/version.txt"
 URL_MAIN_PYTHON_GITHUB = "https://raw.githubusercontent.com/santiagoarielallende93-del/ClippingMulticlienteQuilljs/main/main.py"
 # v5.79: SECRETOS FUERA DEL CÓDIGO. Las keys y usuarios viven en archivos junto al .exe (config.env, usuarios.json, .secret)
@@ -61,6 +63,7 @@ _CFG = _cargar_config_env()
 GROQ_API_KEY = os.environ.get("GROQ_KEY_COMPARTIDA_1") or _CFG.get("GROQ_KEY_COMPARTIDA_1", "")
 GROQ_API_KEY_2 = os.environ.get("GROQ_KEY_COMPARTIDA_2") or _CFG.get("GROQ_KEY_COMPARTIDA_2", "")
 GROQ_KEYS = [k for k in (GROQ_API_KEY, GROQ_API_KEY_2) if k]
+# v5.88: pantalla de revisión: fecha y dominio de cada nota en gris
 # v5.87: Mail Boxes: keywords y búsquedas RSS agrupadas (Competencia y Noticias de Interés)
 # v5.86: velocidad: bloqueo de recursos pesados, lectura previa con requests y resolución de links de Google News sin navegador
 # v5.85: el lector del Word acepta también un link de Google Docs/Drive
@@ -489,11 +492,13 @@ CLIENTES_CONFIG = {
         ]
     },
     "Mail Boxes": {
-        "color_primario": "#0000FF", "hoja_excel": "Mail Boxes", "temas_excluir": [], "banner_principal_local": "banners/mailboxes_principal.jpg", "banner_principal_url": "",
+        "color_primario": "#0000FF", "hoja_excel": "Mail Boxes", "temas_excluir": [], "banner_principal_local": "banners/mailboxes_principal.jpg", "banner_principal_url": "https://drive.google.com/file/d/1TPWQwHYQaclaJ7G3jZjON8C-TddFHf37/view",
         "secciones": [
-            { "id": "mailboxes_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/mailboxes_exclusivas.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=%22Mail%20Boxes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mail Boxes", "Mail Boxes Etc", "MBE"], "exclusiones": [], "limite": 20 },
-            { "id": "mailboxes_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mailboxes_competencia.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=Andreani%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Correo%20Argentino%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=OCA%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Fasttrack%20Argentina%22%20OR%20%22Aerobox%20Argentina%22%20OR%20%22Del%20Mundo%20Courier%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22DHL%20Argentina%22%20OR%20%22FedEx%20Argentina%22%20OR%20UPS%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=OCASA%20OR%20OCA%20OR%20%22Urbano%20Express%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Lancioni%20OR%20%22Cruz%20del%20Sur%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Andreani", "Correo Argentino", "OCA", "DHL", "FedEx", "UPS", "Fasttrack", "Aerobox", "Del Mundo Courier", "OCASA", "Urbano Express", "Lancioni", "Cruz del Sur"], "exclusiones": ["pickups"], "limite": 20 },
-            { "id": "mailboxes_tema_3", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mailboxes_interes.jpg", "img_url": "", "rss": ["https://news.google.com/rss/search?q=courier%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=log%C3%ADstica%20e-commerce%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Importaci%C3%B3n%20Argentina%22%20OR%20Exportaci%C3%B3n%20OR%20%22Desregulaci%C3%B3n%20aduaneras%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Desregulaci%C3%B3n%20de%20transporte%22%20OR%20%22Comercio%20exterior%22%20OR%20%22Transporte%20de%20cargas%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20Log%C3%ADstica%20OR%20Courier%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["courier", "envíos", "logística", "e-commerce", "paquetería", "Importación", "Exportación", "Desregulación aduaneras", "Desregulación de transporte", "Comercio exterior", "Transporte de cargas"], "exclusiones": [], "limite": 20 },
+            { "id": "mailboxes_tema_1", "nombre": "Exclusivas", "nombre_largo": "Exclusivas", "img_local": "banners/mailboxes_exclusivas.jpg", "img_url": "https://drive.google.com/file/d/1BmHMJZe8BrRGyBxuqZZE7qyvXWWSp5aD/view", "rss": ["https://news.google.com/rss/search?q=%22Mail%20Boxes%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Mail Boxes", "Mail Boxes Etc", "MBE"], "exclusiones": [], "limite": 20 },
+            { "id": "mailboxes_tema_2", "nombre": "Competencia", "nombre_largo": "Competencia", "img_local": "banners/mailboxes_competencia.jpg", "img_url": "https://drive.google.com/file/d/1_5zAh9euq4ESEk3y6yVr4qwAB1Auk3WS/view", "rss": ["https://news.google.com/rss/search?q=Andreani%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Correo%20Argentino%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=OCA%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22Fasttrack%20Argentina%22%20OR%20%22Aerobox%20Argentina%22%20OR%20%22Del%20Mundo%20Courier%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=%22DHL%20Argentina%22%20OR%20%22FedEx%20Argentina%22%20OR%20UPS%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=OCASA%20OR%20OCA%20OR%20%22Urbano%20Express%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=Lancioni%20OR%20%22Cruz%20del%20Sur%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["Andreani", "Correo Argentino", "OCA", "DHL", "FedEx", "UPS", "Fasttrack", "Aerobox", "Del Mundo Courier", "OCASA", "Urbano Express", "Lancioni", "Cruz del Sur"], "exclusiones": ["pickups", "Pick-ups", "vehiculos", "SUV", "up"], "limite": 20,
+                "contexto_ia": "El interés es sobre noticias donde la empresa de mensajería/courier/correo/logística listada sea la PROTAGONISTA de la nota: sus servicios, tarifas, operaciones, sucursales, inversiones, tecnología, alianzas, compras o fusiones, conflictos gremiales, cambios regulatorios que la afecten, demoras o novedades de envíos. REGLA ESTRICTA: RECHAZAR homónimos y usos ajenos al negocio de envíos: UPS como equipo de energía/baterías, OCA como ave o sigla de otra organización, apellidos de personas, patrocinios deportivos (ej. FedEx Cup, DHL en deportes o automovilismo), empresas de transporte de pasajeros o turismo, y notas policiales, políticas o económicas donde la empresa solo se menciona de pasada." },
+            { "id": "mailboxes_tema_3", "nombre": "Noticias de Interés", "nombre_largo": "Noticias de interés", "img_local": "banners/mailboxes_interes.jpg", "img_url": "https://drive.google.com/file/d/1NLuVTcB-z23LR_pm0GDj71J0TcaJzIYs/view", "rss": ["https://news.google.com/rss/search?q=courier%20env%C3%ADos%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=log%C3%ADstica%20e-commerce%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Importaci%C3%B3n%20Argentina%22%20OR%20Exportaci%C3%B3n%20OR%20%22Desregulaci%C3%B3n%20aduaneras%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20%22Desregulaci%C3%B3n%20de%20transporte%22%20OR%20%22Comercio%20exterior%22%20OR%20%22Transporte%20de%20cargas%22%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419", "https://news.google.com/rss/search?q=AR%20Log%C3%ADstica%20OR%20Courier%20when%3A1d&hl=es-419&gl=AR&ceid=AR%3Aes-419"], "keywords": ["courier", "envíos", "logística", "e-commerce", "paquetería", "Importación", "Exportación", "Desregulación aduaneras", "Desregulación de transporte", "Comercio exterior", "Transporte de cargas"], "exclusiones": [], "limite": 20,
+                "contexto_ia": "El interés es sobre eCommerce (compras online, tiendas y marketplaces, productos comprados por internet o al exterior), envíos y logística de paquetes, mensajería y courier, y transporte de cargas, siempre dentro del contexto de Argentina. REGLA ESTRICTA: la LOGÍSTICA solo interesa si se vincula con mensajería, courier, paquetería, eCommerce o transporte de cargas. Importación, exportación, aduana y comercio exterior solo interesan si afectan envíos, courier, compras online o logística de cargas (régimen de importación de paquetes, trabas o desregulaciones aduaneras, transporte de cargas). RECHAZAR: logística interna de fábricas o almacenes sin envíos ni eCommerce, logística sanitaria, militar o deportiva, transporte de pasajeros, aviación comercial o turismo, precios de combustibles sin vínculo a cargas, balanzas comerciales, precios o cosechas de commodities (soja, carne, etc.), política o economía general que solo mencione importación o exportación" },
         ]
     }
 }
@@ -712,24 +717,124 @@ def obtener_resumen_metadata(page):
     except: pass
     return ""
 
-def obtener_fecha_metadata(page):
+# ---------- v5.80: EXTRACCIÓN DE FECHA MEJORADA ----------
+_MESES_ES = {'enero': 1, 'febrero': 2, 'marzo': 3, 'abril': 4, 'mayo': 5, 'junio': 6, 'julio': 7, 'agosto': 8, 'septiembre': 9, 'setiembre': 9, 'octubre': 10, 'noviembre': 11, 'diciembre': 12,
+             'ene': 1, 'feb': 2, 'mar': 3, 'abr': 4, 'may': 5, 'jun': 6, 'jul': 7, 'ago': 8, 'sep': 9, 'sept': 9, 'oct': 10, 'nov': 11, 'dic': 12}
+
+def _fecha_valida(d, m, y):
     try:
-        selectors = [
-            'meta[property="article:published_time"]',
-            'meta[name="pubdate"]',
-            'meta[name="date"]',
-            'meta[name="dc.date.issued"]',
-            'time[datetime]'
-        ]
-        for sel in selectors:
-            loc = page.locator(sel).first
-            if loc.count() > 0:
-                val = loc.get_attribute("content") or loc.get_attribute("datetime")
-                if val:
-                    match = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', val)
-                    if match: return f"{match.group(3)}/{match.group(2)}/{match.group(1)}"
-    except: pass
+        dt = datetime.datetime(int(y), int(m), int(d))
+        hoy = datetime.datetime.now()
+        if dt > hoy + datetime.timedelta(days=1) or dt < hoy - datetime.timedelta(days=1100): return ""
+        return dt.strftime("%d/%m/%Y")
+    except Exception:
+        return ""
+
+def _iso_a_fecha(val):
+    """ISO 8601 (con o sin hora/zona) -> DD/MM/YYYY en horario de Argentina (UTC-3)."""
+    m = re.search(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?\s*(Z|[+-]\d{2}:?\d{2})?)?', str(val or ''))
+    if not m: return ""
+    y, mo, d, hh, mm, ss, tz = m.groups()
+    try:
+        if hh is not None and tz:
+            dt = datetime.datetime(int(y), int(mo), int(d), int(hh), int(mm), int(ss or 0))
+            off = 0 if tz == 'Z' else (1 if tz[0] == '+' else -1) * (int(tz[1:3]) * 60 + int(tz[-2:]))
+            dt = dt - datetime.timedelta(minutes=off) - datetime.timedelta(hours=3)  # a UTC y luego a ART
+            return _fecha_valida(dt.day, dt.month, dt.year)
+    except Exception:
+        pass
+    return _fecha_valida(d, mo, y)
+
+def _texto_a_fecha(txt):
+    """Fechas escritas: '8 de octubre de 2026', '08/10/2026', '08-10-26', 'octubre 8, 2026'."""
+    t = remover_acentos(str(txt or '').lower())
+    m = re.search(r'(\d{1,2})\s*(?:de\s+)?([a-z]{3,10})\.?,?\s*(?:de\s+|del\s+)?(20\d{2})', t)
+    if m and m.group(2) in _MESES_ES:
+        f = _fecha_valida(m.group(1), _MESES_ES[m.group(2)], m.group(3))
+        if f: return f
+    m = re.search(r'([a-z]{3,10})\.?\s+(\d{1,2}),?\s+(20\d{2})', t)
+    if m and m.group(1) in _MESES_ES:
+        f = _fecha_valida(m.group(2), _MESES_ES[m.group(1)], m.group(3))
+        if f: return f
+    m = re.search(r'(?<!\d)(\d{1,2})[/\-.](\d{1,2})[/\-.](20\d{2}|\d{2})(?!\d)', t)
+    if m:
+        y = m.group(3) if len(m.group(3)) == 4 else "20" + m.group(3)
+        f = _fecha_valida(m.group(1), m.group(2), y)
+        if f: return f
     return ""
+
+_JS_FECHAS = """() => {
+  const out = {metas: [], times: [], ld: [], textos: []};
+  const claves = ['article:published_time','og:article:published_time','datepublished','pubdate','publishdate','publish_date','date','dc.date','dc.date.issued','dc.date.created','sailthru.date','parsely-pub-date','cxenseparse:recs:publishtime','og:updated_time','article:modified_time','datemodified'];
+  document.querySelectorAll('meta').forEach(m => {
+    const k = (m.getAttribute('property') || m.getAttribute('name') || m.getAttribute('itemprop') || '').toLowerCase();
+    const v = m.getAttribute('content');
+    if (v && claves.includes(k)) out.metas.push([k, v]);
+  });
+  document.querySelectorAll('time[datetime], [itemprop="datePublished"]').forEach(t => {
+    const v = t.getAttribute('datetime') || t.getAttribute('content') || t.innerText;
+    if (v) out.times.push([ (t.getAttribute('itemprop') || '') + ' ' + (t.className || ''), v.slice(0, 60)]);
+  });
+  document.querySelectorAll('script[type="application/ld+json"]').forEach(sc => {
+    try {
+      const walk = o => { if (!o || typeof o !== 'object') return;
+        if (Array.isArray(o)) return o.forEach(walk);
+        if (o.datePublished) out.ld.push(['datePublished', String(o.datePublished)]);
+        else if (o.dateCreated) out.ld.push(['dateCreated', String(o.dateCreated)]);
+        Object.values(o).forEach(walk); };
+      walk(JSON.parse(sc.textContent));
+    } catch (e) {}
+  });
+  document.querySelectorAll('[class*="fecha"],[class*="date"],[class*="time"],[class*="publish"],[class*="byline"],[class*="meta"],[id*="fecha"],[id*="date"]').forEach(e => {
+    const t = (e.innerText || '').trim();
+    if (t && t.length < 120 && out.textos.length < 12) out.textos.push(t);
+  });
+  const art = document.querySelector('article') || document.body;
+  out.cuerpo = (art.innerText || '').slice(0, 1200);
+  return out;
+}"""
+
+def _candidatos_fecha(page):
+    try: return page.evaluate(_JS_FECHAS)
+    except Exception: return None
+
+def obtener_fecha_metadata(page, _cand=None):
+    """Fecha 'fuerte': metadatos de publicación (meta, JSON-LD, <time>). Devuelve DD/MM/YYYY o ''."""
+    c = _cand or _candidatos_fecha(page)
+    if not c: return ""
+    for k, v in c.get('metas', []):
+        if 'modified' in k or 'updated' in k: continue
+        f = _iso_a_fecha(v)
+        if f: return f
+    for k, v in c.get('ld', []):
+        f = _iso_a_fecha(v)
+        if f: return f
+    for k, v in c.get('times', []):
+        f = _iso_a_fecha(v) or _texto_a_fecha(v)
+        if f: return f
+    return ""
+
+def obtener_fecha_debil(page, url="", _cand=None):
+    """Último recurso (después del RSS): fecha en textos visibles, URL o fecha de modificación."""
+    c = _cand or _candidatos_fecha(page) or {}
+    for t in c.get('textos', []):
+        f = _texto_a_fecha(t)
+        if f: return f
+    u = str(url or '')
+    m = re.search(r'(20\d{2})[/\-_]?(\d{2})[/\-_]?(\d{2})(?!\d)', u)
+    if m:
+        f = _fecha_valida(m.group(3), m.group(2), m.group(1))
+        if f: return f
+    f = _texto_a_fecha((c.get('cuerpo', '') or '')[:600])
+    if f: return f
+    for k, v in c.get('metas', []):
+        if 'modified' in k or 'updated' in k:
+            f = _iso_a_fecha(v)
+            if f: return f
+    return ""
+
+def fecha_sin_dato():
+    return "??/" + datetime.datetime.now().strftime("%m/%Y")  # v5.80: si no se encontró, el día queda como ?? para detectarlo
 
 def _sin_titulo(cuerpo, titulo):  # v5.49: saca del cuerpo las líneas que son el título, para que la oración clave sea del texto de la nota y no el título
     _c = lambda x: re.sub(r'[^a-z0-9]', '', remover_acentos(str(x).lower()))
@@ -806,6 +911,9 @@ def completar_bloque_pre(b, palabras_clave, sec_id=""):  # v5.52: nota excluida 
                 except Exception: pass
             pg.wait_for_timeout(1500)
             b['link_destino'] = pg.url
+            _cf = _candidatos_fecha(pg); _ff = obtener_fecha_metadata(pg, _cf)  # v5.80
+            if _ff: b['fecha'] = _ff
+            elif not b.get('fecha'): b['fecha'] = obtener_fecha_debil(pg, pg.url, _cf) or fecha_sin_dato()
             try: pg.evaluate("document.querySelectorAll('aside, footer, nav, .sidebar, .widget, [class*=\"related\"], [class*=\"popular\"]').forEach(el => el.remove())")
             except Exception: pass
             b['bajada_real'] = obtener_resumen_metadata(pg)
@@ -1590,6 +1698,20 @@ def navegar_rapido(page, link):
     page.goto(link, timeout=15000, wait_until="domcontentloaded")
     return False
 
+def fecha_y_dominio_nota(ev):
+    """v5.88: texto gris para la pantalla de revisión: fecha de la nota y dominio con el que termina."""
+    bd = ev.get('bloque_data') or {}
+    fecha = str(bd.get('fecha', '') or '').strip() or 'sin fecha'
+    dom = ''
+    for c in (ev.get('link_destino'), bd.get('link_destino'), bd.get('url_fuente'), ev.get('link')):
+        try:
+            h = urlparse(str(c or '')).netloc.lower().replace('www.', '')
+            if h and 'google.' not in h:
+                dom = h; break
+        except Exception:
+            pass
+    return f"📅 {fecha}  ·  🌐 {dom or 'dominio no disponible'}"
+
 def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, links_manuales, notas_graficas_sec, palabras_clave, exclusiones, color_tema, limite_notas, logger, cliente_nombre, df_medios, timeframe_google, links_sumados_global, urls_resueltas_global, historial_previo, titulos_resueltos_global, start_time_seccion, solo_manuales=False, contexto_ia=""):
     items = []
     evaluaciones_auditoria = []
@@ -1785,7 +1907,8 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         bloque_pre = {
             "medio": limpiar_nombre_medio(medio), "tipo_medio": "Online", "fecha": fecha_rss, "leida": False,
             "alcance": _al_pre, "tier": _ti_pre, "ad_value": _ad_pre, "titulo": titulo, "link": link_orig,
-            "bajada_real": desc_rss, "oracion_clave": desc_rss, "resumen_rss": desc_rss, "origen": origen
+            "bajada_real": desc_rss, "oracion_clave": desc_rss, "resumen_rss": desc_rss, "origen": origen,
+            "url_fuente": url_fuente
         }
 
         if origen not in ('Manual', 'Manual Online') and link_norm and link_norm in historial_previo:  # v5.58: solo afecta a notas de feed/Google
@@ -1873,6 +1996,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         
         page = context.new_page()
         bajada, oracion, fecha_web, link_destino = "", "", "", link_orig
+        fecha_debil = ""
         
         try:
             _rapido = navegar_rapido(page, link_orig)  # v5.86
@@ -1918,7 +2042,9 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
                         medio = urlparse(page.url).netloc.replace("www.", "").split('.')[0].capitalize()
             
             bajada = obtener_resumen_metadata(page)
-            fecha_web = obtener_fecha_metadata(page)
+            _cand_f = _candidatos_fecha(page)
+            fecha_web = obtener_fecha_metadata(page, _cand_f)
+            if not fecha_web: fecha_debil = obtener_fecha_debil(page, page.url, _cand_f)
             # v5.40: todas las notas (no manuales ni redes): la keyword se busca también en el CUERPO de la página (antes solo título + bajada)
             if (origen != 'Manual' or str(sec_id) in IDS_EXCLUSIVAS or str(sec_id) in IDS_COMPETENCIA) and not oracion and not any(rs in link_destino.lower() for rs in ['instagram.com', 'facebook.com', 'x.com', 'twitter.com']):
                 try:
@@ -2011,7 +2137,7 @@ def procesar_seccion(context, sec_id, nombre_seccion, items_rss_preasignados, li
         url_busqueda_excel = "" if (is_social and medio.lower() != "instagram") else (page.url if 'page' in locals() and page else link_orig)
         
         alcance, tier, ad_value = buscar_metricas_medio(df_medios, url_busqueda_excel, medio)
-        fecha_final = fecha_web if fecha_web else (fecha_rss if fecha_rss else datetime.datetime.now().strftime("%d/%m/%Y"))
+        fecha_final = fecha_web or fecha_rss or fecha_debil or fecha_sin_dato()  # v5.80
 
         # --- CONSTRUCCIÓN DEL BLOQUE ---
         # Si es red social, conservamos los guiones bajos originales (ej: revista_mercado) para la interfaz visual.
@@ -3644,6 +3770,7 @@ async def index():
     # PANTALLA DE LOGIN
     if not app.storage.tab.get('authenticated', False):
         with ui.card().classes('absolute-center items-center p-8 shadow-xl rounded-2xl w-96'):
+            ui.label('Hecho por Santiago Allende de Ketchum Arg.').classes('text-[10px] text-gray-400 mb-2')
             ui.label('🔒 Acceso Restringido').classes('text-2xl font-bold text-[#0F172A] mb-2')
             ui.label('Ingresá tus credenciales').classes('text-gray-500 mb-6')
             
@@ -3700,6 +3827,7 @@ async def index():
             dlg.open()
         ui.timer(2.0, chequear_actualizacion, once=True)
         with ui.row().classes('items-center gap-4'):
+            ui.label('Hecho por Santiago Allende de Ketchum Arg.').classes('text-slate-400 text-[10px] italic')
             ui.label(f'v{APP_VERSION}').classes('text-slate-300 italic text-sm font-bold bg-slate-800 px-2 rounded')
             ui.button('🚪 Cerrar Sesión', on_click=logout).props('flat text-color=white').classes('font-bold border border-slate-600 rounded px-3 ml-2')
 
@@ -3812,6 +3940,7 @@ async def index():
                                                         est_clean = str(ev['estado']).replace('EXCLUIDA_', '').replace('_', ' ')
                                                         ui.chip(est_clean, color='rose-2', text_color='rose-9').classes('text-[10px] font-bold py-0 h-5')
                                                         ui.label(f"Motivo: {ev['motivo']}").classes('text-xs text-rose-900 font-bold italic bg-rose-100/80 px-2 py-0.5 rounded')
+                                                    ui.label(fecha_y_dominio_nota(ev)).classes('text-[11px] text-slate-500 font-medium')  # v5.88
                                             
                                                 ui.html(f'<a href="{ev["link"]}" target="_blank" rel="noopener noreferrer" class="text-sky-600 font-semibold underline text-xs">{ev["titulo"]}</a>')
                                             
@@ -4060,8 +4189,6 @@ async def index():
         color = config['color_primario']
         
         with ui.column().classes('w-full max-w-5xl mx-auto p-8'):
-            
-            
 
             with ui.card().classes('w-full mb-6 p-4 border border-gray-200 shadow-sm rounded-xl bg-white'):
                 with ui.row().classes('items-center justify-between w-full'):
